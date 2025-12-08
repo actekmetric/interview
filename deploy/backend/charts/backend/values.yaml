@@ -1,0 +1,33 @@
+replicaCount: 1
+
+image:
+  repository: backend
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+  nodePort: null
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+affinity: {}
+nodeSelector: {}
+tolerations: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+env: []

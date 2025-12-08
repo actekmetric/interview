@@ -1,0 +1,11 @@
+image:
+  repository: backend-local
+  tag: dev
+
+service:
+  type: NodePort
+  nodePort: 30080
+
+env:
+  - name: SPRING_PROFILES_ACTIVE
+    value: local
