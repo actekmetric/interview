@@ -21,15 +21,15 @@
 #### After finishing the goals listed below create a PR
 
 ### Local deployment (kind + Helm)
-For backend-only smoke tests that mirror the production deployment shape, use the assets under `deploy/backend`:
+For backend-only smoke tests that mirror the production deployment shape, use the assets under `deploy/`:
 
 ```bash
 # From repository root
-deploy/backend/scripts/local_up.sh      # create kind cluster and deploy Helm release
-deploy/backend/scripts/local_up.sh down # remove the cluster
+./deploy/scripts/local_up.sh      # create kind cluster and deploy Helm release
+./deploy/scripts/local_up.sh down # remove the cluster
 ```
 
-The script lints the chart, renders manifests to `deploy/backend/manifests/local-kind/`, creates a `backend-local` kind cluster, and installs the Helm release with local overrides from `deploy/backend/environments/local-kind/values.local.yaml`.
+The script lints the chart, renders manifests to `deploy/manifests/local-kind/backend/`, creates a `local-kind` kind cluster, and installs the Helm release with local overrides from `deploy/environments/local-kind/backend-values.local.yaml`. See `deploy/README.md` for details and environment variables.
 
 ### Goals
 1. Design a CRUD API with data store using Spring Boot and in memory H2 database (pre-configured, see below)

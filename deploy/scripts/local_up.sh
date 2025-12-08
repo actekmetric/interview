@@ -2,18 +2,31 @@
 set -euo pipefail
 
 ACTION=${1:-up}
+SERVICE=${SERVICE:-backend}
+RELEASE_NAME=${RELEASE_NAME:-${SERVICE}}
+NAMESPACE=${NAMESPACE:-${SERVICE}-local}
+KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME:-local-kind}
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-CHART_DIR="${REPO_ROOT}/deploy/backend/charts/backend"
-ENV_DIR="${REPO_ROOT}/deploy/backend/environments/local-kind"
-MANIFEST_DIR="${REPO_ROOT}/deploy/backend/manifests/local-kind"
-RELEASE_NAME=${RELEASE_NAME:-backend}
-NAMESPACE=${NAMESPACE:-backend-local}
-KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME:-backend-local}
-HELM_ARGS=(-f "${ENV_DIR}/values.local.yaml" --set fullnameOverride="${RELEASE_NAME}")
+CHART_DIR="${REPO_ROOT}/deploy/charts/${SERVICE}"
+ENV_DIR="${REPO_ROOT}/deploy/environments/local-kind"
+VALUES_FILE="${ENV_DIR}/${SERVICE}-values.local.yaml"
+MANIFEST_DIR="${REPO_ROOT}/deploy/manifests/local-kind/${SERVICE}"
+HELM_ARGS=("-f" "${VALUES_FILE}" --set "fullnameOverride=${RELEASE_NAME}")
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Missing required command: $1" >&2
+    exit 1
+  fi
+}
+
+require_paths() {
+  if [[ ! -d "${CHART_DIR}" ]]; then
+    echo "Unknown service chart path: ${CHART_DIR}" >&2
+    exit 1
+  fi
+  if [[ ! -f "${VALUES_FILE}" ]]; then
+    echo "Missing values file for ${SERVICE}: ${VALUES_FILE}" >&2
     exit 1
   fi
 }
@@ -72,6 +85,7 @@ main() {
   require_cmd kind
   require_cmd helm
   require_cmd kubectl
+  require_paths
 
   case "${ACTION}" in
     up)
