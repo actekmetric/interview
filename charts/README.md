@@ -22,7 +22,7 @@ A comprehensive, production-ready Helm chart for deploying microservices on Kube
 ### Add the Repository
 
 ```bash
-helm repo add tekmetric https://charts.tekmetric.com
+helm repo add tekmetric https://actekmetric.github.io/interview/
 helm repo update
 ```
 
