@@ -1,0 +1,158 @@
+{{- /*
+Tekmetric Common Chart - Deployment Template
+Generates Kubernetes Deployment resources with standardized configurations
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tekmetric.fullname" . }}
+  namespace: {{ include "tekmetric.namespace" . }}
+  labels:
+    {{- include "tekmetric.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount | default 1 }}
+  {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.deployment.maxSurge | default 1 }}
+      maxUnavailable: {{ .Values.deployment.maxUnavailable | default 0 }}
+  selector:
+    matchLabels:
+      {{- include "tekmetric.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        rollme: {{ randAlphaNum 5 | quote }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "tekmetric.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.serviceAccount.name }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.deployment.terminationGracePeriodSeconds | default 30 }}
+      {{- if .Values.affinity.enabled }}
+      affinity:
+        podAntiAffinity:
+          {{- if eq .Values.affinity.type "hard" }}
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                - {{ include "tekmetric.name" . }}
+            topologyKey: {{ .Values.affinity.topologyKey | default "kubernetes.io/hostname" }}
+          {{- else }}
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                  - {{ include "tekmetric.name" . }}
+              topologyKey: {{ .Values.affinity.topologyKey | default "kubernetes.io/hostname" }}
+          {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: {{ .Chart.Name }}
+        image: "{{ .Values.image.repository }}/{{ .Values.image.name }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.service.port }}
+          protocol: TCP
+        {{- if .Values.service.managementPort }}
+        - name: management
+          containerPort: {{ .Values.service.managementPort }}
+          protocol: TCP
+        {{- end }}
+        {{- range .Values.service.additionalPorts }}
+        - name: {{ .name }}
+          containerPort: {{ .port }}
+          protocol: {{ .protocol | default "TCP" }}
+        {{- end }}
+        env:
+        {{- include "tekmetric.environment" . | nindent 8 }}
+        {{- with .Values.env }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.envFrom }}
+        envFrom:
+        {{- toYaml .Values.envFrom | nindent 8 }}
+        {{- end }}
+        {{- if .Values.probes.enabled }}
+        {{- with .Values.probes.liveness }}
+        livenessProbe:
+          httpGet:
+            path: {{ .path | default "/health/live" }}
+            port: {{ .port | default "http" }}
+            scheme: HTTP
+          initialDelaySeconds: {{ .initialDelaySeconds | default 60 }}
+          periodSeconds: {{ .periodSeconds | default 10 }}
+          timeoutSeconds: {{ .timeoutSeconds | default 5 }}
+          successThreshold: {{ .successThreshold | default 1 }}
+          failureThreshold: {{ .failureThreshold | default 3 }}
+        {{- end }}
+        {{- with .Values.probes.readiness }}
+        readinessProbe:
+          httpGet:
+            path: {{ .path | default "/health/ready" }}
+            port: {{ .port | default "http" }}
+            scheme: HTTP
+          initialDelaySeconds: {{ .initialDelaySeconds | default 10 }}
+          periodSeconds: {{ .periodSeconds | default 5 }}
+          timeoutSeconds: {{ .timeoutSeconds | default 3 }}
+          successThreshold: {{ .successThreshold | default 1 }}
+          failureThreshold: {{ .failureThreshold | default 3 }}
+        {{- end }}
+        {{- with .Values.probes.startup }}
+        startupProbe:
+          httpGet:
+            path: {{ .path | default "/health/ready" }}
+            port: {{ .port | default "http" }}
+            scheme: HTTP
+          initialDelaySeconds: {{ .initialDelaySeconds | default 0 }}
+          periodSeconds: {{ .periodSeconds | default 10 }}
+          timeoutSeconds: {{ .timeoutSeconds | default 3 }}
+          successThreshold: {{ .successThreshold | default 1 }}
+          failureThreshold: {{ .failureThreshold | default 30 }}
+        {{- end }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        {{- with .Values.lifecycle }}
+        lifecycle:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- if .Values.volumeMounts }}
+        volumeMounts:
+        {{- toYaml .Values.volumeMounts | nindent 8 }}
+        {{- end }}
+      {{- if .Values.volumes }}
+      volumes:
+      {{- toYaml .Values.volumes | nindent 6 }}
+      {{- end }}
