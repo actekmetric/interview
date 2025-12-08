@@ -5,7 +5,7 @@ on:
     branches:
       - master
       - main
-      - 'wip-*'
+      - wip-helm-template-common-chart
     paths:
       - 'charts/tekmetric-common-chart/**'
       - '.github/workflows/charts/common-helm-chart.yml'
