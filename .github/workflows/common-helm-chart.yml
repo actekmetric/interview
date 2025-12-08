@@ -40,25 +40,6 @@ jobs:
         run: |
           helm lint charts/tekmetric-common-chart/
 
-      - name: Create gh-pages branch if it doesn't exist
-        run: |
-          if ! git ls-remote --heads origin gh-pages | grep gh-pages; then
-            echo "Creating gh-pages branch..."
-            git checkout --orphan gh-pages
-            git rm -rf .
-            cat > index.yaml << EOF
-          apiVersion: v1
-          entries: {}
-          generated: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          EOF
-            git add index.yaml
-            git commit -m "Initialize gh-pages branch"
-            git push origin gh-pages
-            git checkout -
-          else
-            echo "gh-pages branch already exists"
-          fi
-
       - name: Run chart-releaser
         uses: helm/chart-releaser-action@v1.6.0
         with:
