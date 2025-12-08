@@ -1,0 +1,234 @@
+# Tekmetric Common Chart - Default Values
+# This is a YAML-formatted file declaring default values for the chart.
+
+# Override the name of the chart
+nameOverride: ""
+# Override the full name of resources
+fullnameOverride: ""
+# Override the namespace
+namespaceOverride: ""
+
+# Number of replicas (ignored if autoscaling is enabled)
+replicaCount: 1
+
+# Container image configuration
+image:
+  # Image repository URL
+  repository: ""
+  # Image name
+  name: ""
+  # Image pull policy
+  pullPolicy: IfNotPresent
+  # Image tag (defaults to chart appVersion if not specified)
+  tag: ""
+
+# Image pull secrets for private registries
+imagePullSecrets: []
+# - name: regcred
+
+# Service account configuration
+serviceAccount:
+  # Service account name to use
+  name: ""
+
+# Pod security context
+podSecurityContext: {}
+  # fsGroup: 2000
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# Container security context
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# Service configuration
+service:
+  # Service type (ClusterIP, NodePort, LoadBalancer)
+  type: ClusterIP
+  # Primary service port
+  port: 8080
+  # Optional management/metrics port
+  managementPort: null
+  # Additional ports to expose
+  additionalPorts: []
+  # - name: grpc
+  #   port: 9090
+  #   protocol: TCP
+  # Load balancer configuration (for type: LoadBalancer)
+  loadBalancerIP: ""
+  loadBalancerSourceRanges: []
+  externalTrafficPolicy: ""
+  # Service annotations
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  labels: {}
+  hosts: []
+  # - host: app.example.com
+  #   paths:
+  #   - path: /
+  #     pathType: Prefix
+  tls: []
+  # - secretName: app-tls
+  #   hosts:
+  #   - app.example.com
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+# Horizontal Pod Autoscaling
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPU: 80
+  targetMemory: 80
+  # Custom metrics
+  customMetrics: []
+  # Scaling behavior
+  behavior: {}
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# Health probes configuration
+probes:
+  enabled: true
+  liveness:
+    path: /health/live
+    port: http
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+  readiness:
+    path: /health/ready
+    port: http
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+    successThreshold: 1
+  startup:
+    path: /health/ready
+    port: http
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 30
+    successThreshold: 1
+
+# Deployment configuration
+deployment:
+  # Rolling update strategy
+  maxSurge: 1
+  maxUnavailable: 0
+  # Graceful shutdown timeout
+  terminationGracePeriodSeconds: 30
+
+# Pod affinity/anti-affinity
+affinity:
+  enabled: true
+  # Type: soft or hard
+  type: soft
+  # Topology key for spreading pods
+  topologyKey: kubernetes.io/hostname
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Pod labels
+podLabels: {}
+
+# Pod annotations
+podAnnotations: {}
+  # prometheus.io/scrape: "true"
+  # prometheus.io/port: "8080"
+  # prometheus.io/path: "/metrics"
+
+# Common labels applied to all resources
+commonLabels: {}
+
+# Environment variables
+env: []
+# - name: ENVIRONMENT
+#   value: production
+# - name: LOG_LEVEL
+#   value: info
+
+# Environment variables from ConfigMaps or Secrets
+envFrom: []
+# - configMapRef:
+#     name: app-config
+# - secretRef:
+#     name: app-secrets
+
+# Lifecycle hooks
+lifecycle: {}
+  # preStop:
+  #   httpGet:
+  #     path: /shutdown
+  #     port: 8080
+
+# Volume mounts
+volumeMounts: []
+# - name: config
+#   mountPath: /etc/config
+#   readOnly: true
+
+# Volumes
+volumes: []
+# - name: config
+#   configMap:
+#     name: app-config
+
+# JVM configuration (if applicable)
+jvm:
+  enabled: false
+  options: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+
+# Configuration service integration
+config:
+  configService:
+    enabled: false
+    url: ""
+    label: ""
+
+# Observability configuration
+observability:
+  enabled: true
+  otel:
+    # Enable OpenTelemetry
+    enabled: true
+    # OTLP endpoint
+    endpoint: "http://otel-collector:4318"
+    # Protocol: grpc or http/protobuf
+    protocol: "http/protobuf"
+    # Additional Java agent options
+    javaOptions: ""
+    # Additional environment variables
+    additionalEnv: []

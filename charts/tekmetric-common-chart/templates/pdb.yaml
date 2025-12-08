@@ -1,0 +1,23 @@
+{{- if .Values.podDisruptionBudget.enabled -}}
+{{- /*
+Tekmetric Common Chart - PodDisruptionBudget
+Ensures minimum availability during disruptions
+*/ -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "tekmetric.fullname" . }}
+  namespace: {{ include "tekmetric.namespace" . }}
+  labels:
+    {{- include "tekmetric.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "tekmetric.selectorLabels" . | nindent 6 }}
+{{- end }}
