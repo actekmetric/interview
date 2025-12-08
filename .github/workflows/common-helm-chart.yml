@@ -46,7 +46,7 @@ jobs:
             echo "Creating gh-pages branch..."
             git checkout --orphan gh-pages
             git rm -rf .
-            cat > index.yaml << 'EOF'
+            cat > index.yaml << EOF
           apiVersion: v1
           entries: {}
           generated: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
