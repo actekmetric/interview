@@ -1,0 +1,133 @@
+# Backend Service Values
+# This chart uses tekmetric-common-chart as a dependency
+
+# Override values for the common chart
+tekmetric-common-chart:
+  nameOverride: "backend"
+  fullnameOverride: ""
+
+  # Backend service replica count
+  replicaCount: 2
+
+  # Backend container image
+  image:
+    repository: ghcr.io/actekmetric
+    name: backend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  # Service configuration for backend API
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+    managementPort: null
+    annotations: {}
+    additionalPorts: []
+
+  # Ingress configuration (disabled by default)
+  ingress:
+    enabled: false
+    className: nginx
+    annotations: {}
+    hosts: []
+    tls: []
+
+  # Health probes for Spring Boot application
+  probes:
+    enabled: true
+    liveness:
+      path: /actuator/health/liveness
+      port: 8080
+      initialDelaySeconds: 60
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      path: /actuator/health/readiness
+      port: 8080
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    startup:
+      path: /actuator/health/readiness
+      port: 8080
+      initialDelaySeconds: 0
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 30
+
+  # Resource limits and requests
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+  # Horizontal Pod Autoscaler
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPU: 70
+    targetMemory: 80
+
+  # Pod Disruption Budget for high availability
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  # Observability configuration
+  observability:
+    enabled: true
+    otel:
+      enabled: true
+      endpoint: "http://otel-collector:4318"
+      protocol: "http/protobuf"
+      serviceName: "backend-service"
+
+  # Environment variables for the application
+  env:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "production"
+    - name: SERVER_PORT
+      value: "8080"
+    - name: MANAGEMENT_SERVER_PORT
+      value: "8080"
+
+  # JVM configuration
+  jvm:
+    enabled: true
+    options: "-Xms256m -Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+
+  # Pod annotations
+  podAnnotations: {}
+
+  # Node selector
+  nodeSelector: {}
+
+  # Tolerations
+  tolerations: []
+
+  # Affinity rules for pod scheduling
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - backend
+            topologyKey: kubernetes.io/hostname

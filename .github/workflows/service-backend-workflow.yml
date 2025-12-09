@@ -1,4 +1,4 @@
-name: Service Backend Build/Test/CI/CD
+name: Backend Service CI/CD
 
 on:
   push:
@@ -8,7 +8,11 @@ on:
     paths:
       - 'backend/**'
       - '.github/workflows/service-backend-workflow.yml'
+
   pull_request:
+    branches:
+      - master
+      - main
     paths:
       - 'backend/**'
       - '.github/workflows/service-backend-workflow.yml'
@@ -18,6 +22,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout code
@@ -44,22 +51,11 @@ jobs:
         run: |
           VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "artifact_name=interview-$VERSION.jar" >> $GITHUB_OUTPUT
-
-      - name: Upload JAR as artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-jar
-          path: backend/target/*.jar
-          retention-days: 30
 
       - name: Set up Docker Buildx
-        if: success()
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
-        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -67,7 +63,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
-        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
         uses: docker/build-push-action@v5
         with:
           context: ./backend
@@ -80,81 +75,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Create Release and Upload JAR
-        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
-        id: create_release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: backend-v${{ steps.get_version.outputs.version }}-${{ github.run_number }}
-          name: Backend Release v${{ steps.get_version.outputs.version }}-${{ github.run_number }}
-          files: backend/target/${{ steps.get_version.outputs.artifact_name }}
-          draft: false
-          prerelease: false
-          body: |
-            ## Backend Service Release
-
-            **Version:** ${{ steps.get_version.outputs.version }}
-            **Build Number:** ${{ github.run_number }}
-            **Commit:** ${{ github.sha }}
-
-            ### Artifacts
-            - JAR: `${{ steps.get_version.outputs.artifact_name }}`
-
-            ### Docker Images
-            - `ghcr.io/${{ github.repository_owner }}/backend:${{ steps.get_version.outputs.version }}-${{ github.run_number }}`
-            - `ghcr.io/${{ github.repository_owner }}/backend:latest`
-
-            **Architectures:** linux/amd64, linux/arm64
-
-            ### Pull Image
-            ```bash
-            docker pull ghcr.io/${{ github.repository_owner }}/backend:${{ steps.get_version.outputs.version }}-${{ github.run_number }}
-            ```
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate Build Summary
-        if: success()
+      - name: Build Summary
         run: |
-          echo "# Backend Service Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## Backend Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.get_version.outputs.version }}-${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Service Information" >> $GITHUB_STEP_SUMMARY
-          echo "- **Service:** Backend API" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version:** ${{ steps.get_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Build Number:** ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit SHA:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Artifacts" >> $GITHUB_STEP_SUMMARY
-          echo "- **JAR File:** \`${{ steps.get_version.outputs.artifact_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Location:** \`backend/target/${{ steps.get_version.outputs.artifact_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [[ "${{ github.event_name }}" == "push" && ("${{ github.ref }}" == "refs/heads/master" || "${{ github.ref }}" == "refs/heads/main") ]]; then
-            echo "## Docker Images" >> $GITHUB_STEP_SUMMARY
-            echo "Multi-architecture images published to GitHub Container Registry:" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Tags" >> $GITHUB_STEP_SUMMARY
-            echo "- \`ghcr.io/${{ github.repository_owner }}/backend:${{ steps.get_version.outputs.version }}-${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- \`ghcr.io/${{ github.repository_owner }}/backend:latest\`" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Supported Architectures" >> $GITHUB_STEP_SUMMARY
-            echo "- linux/amd64" >> $GITHUB_STEP_SUMMARY
-            echo "- linux/arm64" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Pull Command" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-            echo "docker pull ghcr.io/${{ github.repository_owner }}/backend:${{ steps.get_version.outputs.version }}-${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "## Release" >> $GITHUB_STEP_SUMMARY
-            echo "- **Tag:** \`backend-v${{ steps.get_version.outputs.version }}-${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Release Name:** Backend Release v${{ steps.get_version.outputs.version }}-${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "## Docker Images" >> $GITHUB_STEP_SUMMARY
-            echo "Docker image not published (only on master/main push)" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Build completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "**Docker Images:**" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ghcr.io/${{ github.repository_owner }}/backend:${{ steps.get_version.outputs.version }}-${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ghcr.io/${{ github.repository_owner }}/backend:latest\`" >> $GITHUB_STEP_SUMMARY
