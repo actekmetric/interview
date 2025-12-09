@@ -156,9 +156,8 @@ jobs:
         run: |
           k3d cluster create backend-test \
             --agents 0 \
-            --no-lb \
             --k3s-arg "--disable=traefik,metrics-server@server:0" \
-            --port 8080:30080@server:0 \
+            --port 8080:30080@loadbalancer \
             --wait \
             --timeout 1m
 
