@@ -1,5 +1,5 @@
 # Runtime stage - Alpine for security
-FROM openjdk:8-jre-alpine
+FROM openjdk:8u212-jre-alpine
 
 # Create tomcat user and group with specific UID/GID for consistency
 RUN addgroup -g 1000 tomcat && \
