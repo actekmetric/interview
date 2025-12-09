@@ -67,6 +67,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-test
     timeout-minutes: 15
+    permissions:
+      contents: write
+      packages: write
+      pages: write
+      id-token: write
 
     steps:
       - name: Checkout code
@@ -94,12 +99,23 @@ jobs:
       - name: Pre-cleanup
         run: |
           kind delete cluster --name backend-test 2>/dev/null || true
-          docker rmi backend:pr-${{ github.run_number }} 2>/dev/null || true
 
-      - name: Build Docker image for testing
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image for PR testing
         working-directory: ./backend
         run: |
-          docker build --platform linux/amd64 -t backend:pr-${{ github.run_number }} -f docker/Dockerfile .
+          # Build and push PR image to GHCR for testing
+          docker build --platform linux/amd64 -t ghcr.io/${{ github.repository_owner }}/backend:pr-${{ github.run_number }} -f docker/Dockerfile .
+          docker push ghcr.io/${{ github.repository_owner }}/backend:pr-${{ github.run_number }}
 
       - name: Install Trivy
         run: |
@@ -115,7 +131,7 @@ jobs:
           echo "> **Note:** Base image vulnerabilities (Alpine 3.9.4 / OpenJDK 8u212) are known and tracked separately." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          trivy image --severity HIGH,CRITICAL --format table backend:pr-${{ github.run_number }} | tee -a $GITHUB_STEP_SUMMARY || true
+          trivy image --severity HIGH,CRITICAL --format table ghcr.io/${{ github.repository_owner }}/backend:pr-${{ github.run_number }} | tee -a $GITHUB_STEP_SUMMARY || true
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -124,7 +140,7 @@ jobs:
           trivy image --severity HIGH,CRITICAL \
             --exit-code 0 \
             --format sarif --output trivy-results.sarif \
-            backend:pr-${{ github.run_number }}
+            ghcr.io/${{ github.repository_owner }}/backend:pr-${{ github.run_number }}
 
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
@@ -141,10 +157,6 @@ jobs:
       - name: Create kind cluster
         run: |
           kind create cluster --name backend-test --config sre/k8s/kind-config.yaml --wait 3m
-
-      - name: Load Docker image into kind
-        run: |
-          kind load docker-image backend:pr-${{ github.run_number }} --name backend-test
 
       - name: Verify kind cluster
         run: |
@@ -166,73 +178,32 @@ jobs:
         run: |
           helm dependency build
 
-      - name: Create test values file
+      - name: Update chart version for PR
+        working-directory: ./sre/helm/backend
         run: |
-          cat > /tmp/test-values.yaml <<'EOF'
-          tekmetric-common-chart:
-            nameOverride: "backend"
-            replicaCount: 1
-            image:
-              repository: backend
-              name: ""
-              tag: "pr-${{ github.run_number }}"
-              pullPolicy: Never
-            resources:
-              limits:
-                cpu: 500m
-                memory: 512Mi
-              requests:
-                cpu: 250m
-                memory: 256Mi
-            probes:
-              enabled: true
-              liveness:
-                path: /actuator/health/liveness
-                port: 8080
-                initialDelaySeconds: 30
-                periodSeconds: 10
-                timeoutSeconds: 5
-                failureThreshold: 3
-              readiness:
-                path: /actuator/health/readiness
-                port: 8080
-                initialDelaySeconds: 15
-                periodSeconds: 5
-                timeoutSeconds: 3
-                failureThreshold: 3
-              startup:
-                path: /actuator/health/readiness
-                port: 8080
-                initialDelaySeconds: 0
-                periodSeconds: 5
-                timeoutSeconds: 3
-                failureThreshold: 20
-            service:
-              type: NodePort
-              port: 8080
-              targetPort: 8080
-              nodePort: 30080
-            env:
-              - name: SPRING_PROFILES_ACTIVE
-                value: "test"
-              - name: SERVER_PORT
-                value: "8080"
-            jvm:
-              enabled: true
-              options: "-Xms128m -Xmx256m -XX:+UseG1GC"
-            podDisruptionBudget:
-              enabled: false
-            autoscaling:
-              enabled: false
-            observability:
-              enabled: false
-          EOF
+          # Update chart version to include PR number
+          sed -i.bak "s/^version:.*/version: 0.1.0-pr${{ github.run_number }}/" Chart.yaml
+
+      - name: Configure Git for chart-releaser
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Package and publish Helm chart to GitHub Pages
+        uses: helm/chart-releaser-action@v1.6.0
+        with:
+          charts_dir: sre/helm
+        env:
+          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          CR_SKIP_EXISTING: false
 
       - name: Deploy backend with Helm
         working-directory: ./sre/helm/backend
         run: |
           helm install backend . \
-            --values /tmp/test-values.yaml \
+            --values values-local-kind-testing.yaml \
+            --set tekmetric-common-chart.image.repository=ghcr.io/${{ github.repository_owner }} \
+            --set tekmetric-common-chart.image.tag=pr-${{ github.run_number }} \
             --wait \
             --timeout 5m \
             --debug
@@ -297,8 +268,34 @@ jobs:
         run: |
           kind delete cluster --name backend-test 2>/dev/null || true
 
-      - name: Cleanup - Remove Docker images
+      - name: Cleanup - Remove local Docker images
         if: always()
         run: |
-          docker rmi backend:pr-${{ github.run_number }} 2>/dev/null || true
+          docker rmi ghcr.io/${{ github.repository_owner }}/backend:pr-${{ github.run_number }} 2>/dev/null || true
           docker system prune -f 2>/dev/null || true
+
+      - name: Cleanup - Delete PR image from GHCR
+        if: always()
+        continue-on-error: true
+        run: |
+          # Delete the PR image from GHCR after tests complete
+          # Requires: contents: write, packages: write permissions
+          gh api --method DELETE \
+            /orgs/${{ github.repository_owner }}/packages/container/backend/versions/$(gh api /orgs/${{ github.repository_owner }}/packages/container/backend/versions | jq -r '.[] | select(.metadata.container.tags[] | contains("pr-${{ github.run_number }}")) | .id') \
+            2>/dev/null || echo "Could not delete PR image from GHCR (may require packages: write permission)"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup - Delete PR Helm chart from GitHub Pages
+        if: always()
+        continue-on-error: true
+        run: |
+          # Delete the PR Helm chart release from GitHub
+          CHART_VERSION="0.1.0-pr${{ github.run_number }}"
+          TAG_NAME="backend-service-${CHART_VERSION}"
+
+          # Delete the GitHub release and tag for the chart
+          gh release delete "$TAG_NAME" --yes 2>/dev/null || echo "Chart release not found or already deleted"
+          git push --delete origin "$TAG_NAME" 2>/dev/null || echo "Chart tag not found or already deleted"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

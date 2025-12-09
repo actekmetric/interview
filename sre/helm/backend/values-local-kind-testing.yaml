@@ -1,0 +1,78 @@
+# Values for local kind cluster testing in CI/CD
+# This file is used by PR workflows to test deployments
+
+tekmetric-common-chart:
+  nameOverride: "backend"
+
+  # Single replica for testing
+  replicaCount: 1
+
+  # Image will be overridden by CI with PR-specific tag
+  image:
+    repository: "ghcr.io/actekmetric"
+    name: "backend"
+    tag: "latest"  # Overridden by CI
+    pullPolicy: IfNotPresent
+
+  # Reduced resources for kind cluster
+  resources:
+    limits:
+      cpu: 500m
+      memory: 384Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+
+  # Health probes with extended delays for slow startup
+  probes:
+    enabled: true
+    liveness:
+      path: /actuator/health/liveness
+      port: 8080
+      initialDelaySeconds: 45
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      path: /actuator/health/readiness
+      port: 8080
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    startup:
+      path: /actuator/health/readiness
+      port: 8080
+      initialDelaySeconds: 0
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 30  # 5 minutes total startup time
+
+  # NodePort for kind access
+  service:
+    type: NodePort
+    port: 8080
+    targetPort: 8080
+    nodePort: 30080
+
+  # Test environment configuration
+  env:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "test"
+    - name: SERVER_PORT
+      value: "8080"
+
+  # Reduced JVM heap for testing
+  jvm:
+    enabled: true
+    options: "-Xms64m -Xmx128m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m"
+
+  # Disable features not needed for testing
+  podDisruptionBudget:
+    enabled: false
+
+  autoscaling:
+    enabled: false
+
+  observability:
+    enabled: false
