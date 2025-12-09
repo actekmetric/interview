@@ -13,7 +13,7 @@ tekmetric-common-chart:
   image:
     repository: ghcr.io/actekmetric
     name: backend
-    tag: "latest"
+    tag: ""  # Defaults to Chart.AppVersion
     pullPolicy: IfNotPresent
 
   # Service configuration for backend API

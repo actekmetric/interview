@@ -5,6 +5,14 @@ inputs:
   chart-path:
     description: 'Path to the Helm chart directory (e.g., sre/helm/backend)'
     required: true
+  chart-version:
+    description: 'Helm chart version to set (if provided, overrides Chart.yaml version)'
+    required: false
+    default: ''
+  app-version:
+    description: 'Application version to set in Chart.yaml appVersion (e.g., docker image tag)'
+    required: false
+    default: ''
   charts-repo-url:
     description: 'GitHub Pages URL for the charts repository'
     required: false
@@ -42,6 +50,26 @@ runs:
       uses: azure/setup-helm@v3
       with:
         version: ${{ inputs.helm-version }}
+
+    - name: Update Chart Version and AppVersion
+      shell: bash
+      run: |
+        CHART_FILE="${{ inputs.chart-path }}/Chart.yaml"
+
+        if [ -n "${{ inputs.chart-version }}" ]; then
+          echo "📝 Updating chart version to ${{ inputs.chart-version }}"
+          sed -i.bak "s/^version:.*/version: ${{ inputs.chart-version }}/" "${CHART_FILE}"
+        fi
+
+        if [ -n "${{ inputs.app-version }}" ]; then
+          echo "📝 Updating appVersion to ${{ inputs.app-version }}"
+          sed -i.bak "s/^appVersion:.*/appVersion: \"${{ inputs.app-version }}\"/" "${CHART_FILE}"
+        fi
+
+        rm -f "${CHART_FILE}.bak"
+
+        echo "📋 Updated Chart.yaml:"
+        cat "${CHART_FILE}"
 
     - name: Add Helm Repositories for Dependencies
       shell: bash
