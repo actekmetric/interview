@@ -193,19 +193,6 @@ jobs:
         run: |
           helm dependency build
 
-      - name: Configure Git for chart-releaser
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-
-      - name: Package and publish Helm chart to GitHub Pages
-        uses: helm/chart-releaser-action@v1.6.0
-        with:
-          charts_dir: sre/helm
-        env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-          CR_SKIP_EXISTING: false
-
       - name: Deploy backend with Helm
         working-directory: ./sre/helm/backend
         run: |
@@ -292,19 +279,5 @@ jobs:
           gh api --method DELETE \
             /orgs/${{ github.repository_owner }}/packages/container/backend/versions/$(gh api /orgs/${{ github.repository_owner }}/packages/container/backend/versions | jq -r '.[] | select(.metadata.container.tags[] | contains("pr-${{ github.run_number }}")) | .id') \
             2>/dev/null || echo "Could not delete PR image from GHCR (may require packages: write permission)"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Cleanup - Delete PR Helm chart from GitHub Pages
-        if: always()
-        continue-on-error: true
-        run: |
-          # Delete the PR Helm chart release from GitHub
-          CHART_VERSION="0.1.0-pr${{ github.run_number }}"
-          TAG_NAME="backend-service-${CHART_VERSION}"
-
-          # Delete the GitHub release and tag for the chart
-          gh release delete "$TAG_NAME" --yes 2>/dev/null || echo "Chart release not found or already deleted"
-          git push --delete origin "$TAG_NAME" 2>/dev/null || echo "Chart tag not found or already deleted"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
