@@ -77,12 +77,12 @@ jobs:
           context: ./backend
           dockerfile: docker/Dockerfile
           # On PRs: single platform for local scanning
-          # On push: multi-platform for registry
+          # On push/workflow_dispatch: multi-platform for registry
           platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           image-name: ${{ github.repository_owner }}/backend
           image-tag: ${{ steps.version.outputs.version }}
-          push: ${{ github.event_name == 'push' }}
-          tag-latest: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
+          push: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+          tag-latest: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
           registry-username: ${{ github.actor }}
           registry-password: ${{ secrets.GITHUB_TOKEN }}
 
@@ -101,7 +101,7 @@ jobs:
     name: Publish Helm Chart
     runs-on: ubuntu-latest
     needs: build-and-test
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
     permissions:
       contents: write
       pages: write
