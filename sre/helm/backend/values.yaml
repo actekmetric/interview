@@ -82,7 +82,7 @@ tekmetric-common-chart:
 
   # Observability configuration
   observability:
-    enabled: true
+    enabled: false
     otel:
       enabled: true
       endpoint: "http://otel-collector:4318"
