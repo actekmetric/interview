@@ -1,4 +1,4 @@
-name: Backend Build/Test/CI/CD
+name: Service Backend Build/Test/CI/CD
 
 on:
   push:

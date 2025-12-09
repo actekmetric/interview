@@ -1,4 +1,4 @@
-name: Release Common Helm Chart
+name: Helm Chart Common
 
 on:
   push:
