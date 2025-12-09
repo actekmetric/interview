@@ -173,16 +173,22 @@ jobs:
         with:
           version: 'v3.13.0'
 
-      - name: Build Helm dependencies
-        working-directory: ./sre/helm/backend
-        run: |
-          helm dependency build
-
       - name: Update chart version for PR
         working-directory: ./sre/helm/backend
         run: |
           # Update chart version to include PR number
           sed -i.bak "s/^version:.*/version: 0.1.0-pr${{ github.run_number }}/" Chart.yaml
+
+      - name: Add Helm repository for dependencies
+        run: |
+          # Add the GitHub Pages helm repository
+          helm repo add tekmetric https://actekmetric.github.io/interview/
+          helm repo update
+
+      - name: Build Helm dependencies
+        working-directory: ./sre/helm/backend
+        run: |
+          helm dependency build
 
       - name: Configure Git for chart-releaser
         run: |
