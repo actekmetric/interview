@@ -43,6 +43,18 @@ runs:
       with:
         version: ${{ inputs.helm-version }}
 
+    - name: Add Helm Repositories for Dependencies
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.chart-path }}/Chart.yaml" ]; then
+          if grep -q "^dependencies:" "${{ inputs.chart-path }}/Chart.yaml"; then
+            echo "📦 Adding helm repositories for dependencies..."
+            # Add the charts repository so chart-releaser can validate it
+            helm repo add charts-repo ${{ inputs.charts-repo-url }} || true
+            helm repo update
+          fi
+        fi
+
     - name: Build Chart Dependencies
       shell: bash
       run: |
