@@ -7,7 +7,7 @@ on:
       - main
     paths:
       - 'sre/helm/common/charts/tekmetric-common-chart/**'
-      - 'sre-helm-common-chart.yml'
+      - '.github/workflows/sre-helm-common-chart.yml'
 
   workflow_dispatch:
 
