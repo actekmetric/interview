@@ -98,7 +98,7 @@ jobs:
 
       - name: Pre-cleanup
         run: |
-          kind delete cluster --name backend-test 2>/dev/null || true
+          k3d cluster delete backend-test 2>/dev/null || true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -148,17 +148,21 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
-      - name: Install kind
+      - name: Install k3d
         run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
+          curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
 
-      - name: Create kind cluster
+      - name: Create k3d cluster
         run: |
-          kind create cluster --name backend-test --config sre/k8s/kind-config.yaml --wait 1m
+          k3d cluster create backend-test \
+            --agents 0 \
+            --no-lb \
+            --k3s-arg "--disable=traefik,metrics-server@server:0" \
+            --port 8080:30080@server:0 \
+            --wait \
+            --timeout 1m
 
-      - name: Verify kind cluster
+      - name: Verify k3d cluster
         run: |
           kubectl cluster-info
           kubectl get nodes
@@ -258,7 +262,7 @@ jobs:
           echo "## Deployment Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Image:** \`backend:pr-${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Cluster:** kind (backend-test)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster:** k3d (backend-test)" >> $GITHUB_STEP_SUMMARY
           echo "- **Namespace:** default" >> $GITHUB_STEP_SUMMARY
           echo "- **Helm Chart:** sre/helm/backend" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -269,10 +273,10 @@ jobs:
             echo "❌ Deployment tests failed" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Cleanup - Delete kind cluster
+      - name: Cleanup - Delete k3d cluster
         if: always()
         run: |
-          kind delete cluster --name backend-test 2>/dev/null || true
+          k3d cluster delete backend-test 2>/dev/null || true
 
       - name: Cleanup - Remove local Docker images
         if: always()
