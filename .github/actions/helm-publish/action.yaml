@@ -43,6 +43,19 @@ runs:
       with:
         version: ${{ inputs.helm-version }}
 
+    - name: Build Chart Dependencies
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.chart-path }}/Chart.yaml" ]; then
+          if grep -q "^dependencies:" "${{ inputs.chart-path }}/Chart.yaml"; then
+            echo "📦 Building chart dependencies for ${{ inputs.chart-path }}..."
+            helm dependency build ${{ inputs.chart-path }}
+            echo "✅ Chart dependencies built successfully"
+          else
+            echo "ℹ️  No dependencies found in Chart.yaml"
+          fi
+        fi
+
     - name: Lint Helm Chart
       shell: bash
       run: |
