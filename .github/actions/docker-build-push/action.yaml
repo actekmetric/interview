@@ -1,0 +1,131 @@
+name: 'Docker Build and Push'
+description: 'Builds multi-platform Docker images and pushes to GitHub Container Registry'
+
+inputs:
+  context:
+    description: 'Build context directory (e.g., ./backend)'
+    required: true
+  dockerfile:
+    description: 'Path to Dockerfile relative to context (e.g., docker/Dockerfile)'
+    required: false
+    default: 'Dockerfile'
+  platforms:
+    description: 'Comma-separated list of target platforms (e.g., linux/amd64,linux/arm64)'
+    required: false
+    default: 'linux/amd64,linux/arm64'
+  registry:
+    description: 'Container registry URL'
+    required: false
+    default: 'ghcr.io'
+  registry-username:
+    description: 'Registry username for authentication'
+    required: true
+  registry-password:
+    description: 'Registry password/token for authentication'
+    required: true
+  image-name:
+    description: 'Image name without registry (e.g., myorg/myapp)'
+    required: true
+  image-tag:
+    description: 'Primary image tag (e.g., 1.0.0-build.123-abc1234)'
+    required: true
+  push:
+    description: 'Whether to push the image to registry (true/false)'
+    required: false
+    default: 'true'
+  tag-latest:
+    description: 'Also tag as latest (true/false)'
+    required: false
+    default: 'false'
+  build-args:
+    description: 'Build arguments as key=value pairs, one per line'
+    required: false
+    default: ''
+
+outputs:
+  image-ref:
+    description: 'Full image reference with tag'
+    value: ${{ steps.meta.outputs.image-ref }}
+  digest:
+    description: 'Image digest'
+    value: ${{ steps.build.outputs.digest }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ inputs.registry-username }}
+        password: ${{ inputs.registry-password }}
+
+    - name: Prepare image tags
+      id: meta
+      shell: bash
+      run: |
+        IMAGE_BASE="${{ inputs.registry }}/${{ inputs.image-name }}"
+        PRIMARY_TAG="${IMAGE_BASE}:${{ inputs.image-tag }}"
+
+        TAGS="${PRIMARY_TAG}"
+        if [[ "${{ inputs.tag-latest }}" == "true" ]]; then
+          TAGS="${TAGS}
+        ${IMAGE_BASE}:latest"
+        fi
+
+        # Export for docker build
+        echo "tags<<EOF" >> $GITHUB_OUTPUT
+        echo "${TAGS}" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+        echo "image-ref=${PRIMARY_TAG}" >> $GITHUB_OUTPUT
+
+        echo "🏷️  Image tags:"
+        echo "${TAGS}"
+
+    - name: Build and Push Docker Image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.context }}/${{ inputs.dockerfile }}
+        platforms: ${{ inputs.platforms }}
+        push: ${{ inputs.push }}
+        # Load to local Docker when not pushing (for scanning)
+        # Note: load only works with single platform builds
+        load: ${{ inputs.push == 'false' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        build-args: ${{ inputs.build-args }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build Summary
+      shell: bash
+      run: |
+        echo "## 🐳 Docker Image Build" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Image:** \`${{ steps.meta.outputs.image-ref }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Platforms:** \`${{ inputs.platforms }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Pushed:** ${{ inputs.push }}" >> $GITHUB_STEP_SUMMARY
+
+        if [[ "${{ inputs.push }}" == "true" ]]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Pull Command" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ steps.meta.outputs.image-ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Image built but not pushed (PR build)_" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [[ -n "${{ steps.build.outputs.digest }}" ]]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+        fi
