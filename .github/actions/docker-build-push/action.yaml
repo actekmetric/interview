@@ -97,6 +97,9 @@ runs:
         file: ${{ inputs.context }}/${{ inputs.dockerfile }}
         platforms: ${{ inputs.platforms }}
         push: ${{ inputs.push }}
+        # Load to local Docker when not pushing (for scanning)
+        # Note: load only works with single platform builds
+        load: ${{ inputs.push == 'false' }}
         tags: ${{ steps.meta.outputs.tags }}
         build-args: ${{ inputs.build-args }}
         cache-from: type=gha

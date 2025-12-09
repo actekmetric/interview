@@ -76,7 +76,9 @@ jobs:
         with:
           context: ./backend
           dockerfile: docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # On PRs: single platform for local scanning
+          # On push: multi-platform for registry
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           image-name: ${{ github.repository_owner }}/backend
           image-tag: ${{ steps.version.outputs.version }}
           push: ${{ github.event_name == 'push' }}
