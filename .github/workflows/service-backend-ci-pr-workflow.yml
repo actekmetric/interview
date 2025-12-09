@@ -1,0 +1,298 @@
+name: Backend Service PR CI/CD
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'sre/helm/backend/**'
+      - 'sre/k8s/**'
+      - 'sre/scripts/**'
+      - '.github/workflows/service-backend-ci-pr-workflow.yml'
+
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build and Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build with Maven
+        working-directory: ./backend
+        run: mvn clean package -DskipTests
+
+      - name: Run unit tests
+        working-directory: ./backend
+        run: mvn test
+
+      - name: Get version from pom.xml
+        id: get_version
+        working-directory: ./backend
+        run: |
+          VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "artifact_name=interview-$VERSION.jar" >> $GITHUB_OUTPUT
+
+      - name: Upload JAR as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jar
+          path: backend/target/*.jar
+          retention-days: 7
+
+      - name: Generate build summary
+        run: |
+          echo "# Backend Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Build Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${{ steps.get_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **JAR:** \`${{ steps.get_version.outputs.artifact_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.head_ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Build and tests completed successfully" >> $GITHUB_STEP_SUMMARY
+
+  deployment-test:
+    name: Deployment Testing
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-jar
+          path: backend/target
+
+      - name: Get version from pom.xml
+        id: get_version
+        working-directory: ./backend
+        run: |
+          VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Pre-cleanup
+        run: |
+          kind delete cluster --name backend-test || true
+          docker rmi backend:pr-${{ github.run_number }} || true
+
+      - name: Build Docker image for testing
+        working-directory: ./backend
+        run: |
+          docker build --platform linux/amd64 -t backend:pr-${{ github.run_number }} -f docker/Dockerfile .
+
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Scan Docker image with Trivy
+        run: |
+          echo "# Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Docker Image Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          trivy image --severity HIGH,CRITICAL --format table backend:pr-${{ github.run_number }} | tee -a $GITHUB_STEP_SUMMARY || true
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          trivy image --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --format sarif --output trivy-results.sarif \
+            backend:pr-${{ github.run_number }}
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Install kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Create kind cluster
+        run: |
+          kind create cluster --name backend-test --config sre/k8s/kind-config.yaml --wait 3m
+
+      - name: Load Docker image into kind
+        run: |
+          kind load docker-image backend:pr-${{ github.run_number }} --name backend-test
+
+      - name: Verify kind cluster
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Kubernetes Cluster" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          kubectl get nodes >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.13.0'
+
+      - name: Build Helm dependencies
+        working-directory: ./sre/helm/backend
+        run: |
+          helm dependency build
+
+      - name: Create test values file
+        run: |
+          cat > /tmp/test-values.yaml <<'EOF'
+          tekmetric-common-chart:
+            nameOverride: "backend"
+            replicaCount: 1
+            image:
+              repository: backend
+              name: ""
+              tag: "pr-${{ github.run_number }}"
+              pullPolicy: Never
+            resources:
+              limits:
+                cpu: 500m
+                memory: 512Mi
+              requests:
+                cpu: 250m
+                memory: 256Mi
+            probes:
+              enabled: true
+              liveness:
+                path: /actuator/health/liveness
+                port: 8080
+                initialDelaySeconds: 30
+                periodSeconds: 10
+                timeoutSeconds: 5
+                failureThreshold: 3
+              readiness:
+                path: /actuator/health/readiness
+                port: 8080
+                initialDelaySeconds: 15
+                periodSeconds: 5
+                timeoutSeconds: 3
+                failureThreshold: 3
+              startup:
+                path: /actuator/health/readiness
+                port: 8080
+                initialDelaySeconds: 0
+                periodSeconds: 5
+                timeoutSeconds: 3
+                failureThreshold: 20
+            service:
+              type: NodePort
+              port: 8080
+              targetPort: 8080
+              nodePort: 30080
+            env:
+              - name: SPRING_PROFILES_ACTIVE
+                value: "test"
+              - name: SERVER_PORT
+                value: "8080"
+            jvm:
+              enabled: true
+              options: "-Xms128m -Xmx256m -XX:+UseG1GC"
+            podDisruptionBudget:
+              enabled: false
+            autoscaling:
+              enabled: false
+            observability:
+              enabled: false
+          EOF
+
+      - name: Deploy backend with Helm
+        working-directory: ./sre/helm/backend
+        run: |
+          helm install backend . \
+            --values /tmp/test-values.yaml \
+            --wait \
+            --timeout 5m \
+            --debug
+
+      - name: Verify Kubernetes resources
+        run: |
+          echo "=== Deployments ==="
+          kubectl get deployments -A
+
+          echo "=== Pods ==="
+          kubectl get pods -A
+
+          echo "=== Services ==="
+          kubectl get services -A
+
+      - name: Wait for deployment
+        run: |
+          kubectl wait --for=condition=available --timeout=300s \
+            deployment/backend -n default
+
+      - name: Wait for pod ready
+        run: |
+          kubectl wait --for=condition=ready --timeout=300s \
+            pod -l app.kubernetes.io/name=backend -n default
+
+      - name: Check pod logs
+        if: always()
+        run: |
+          echo "=== Pod Logs ==="
+          kubectl logs -l app.kubernetes.io/name=backend --tail=100 -n default || true
+
+      - name: Port forward backend service
+        run: |
+          kubectl port-forward service/backend 8080:8080 -n default &
+          sleep 10
+
+      - name: Run smoke tests
+        run: |
+          chmod +x sre/scripts/smoke-tests.sh
+          ./sre/scripts/smoke-tests.sh
+
+      - name: Generate deployment test summary
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Deployment Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`backend:pr-${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster:** kind (backend-test)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Namespace:** default" >> $GITHUB_STEP_SUMMARY
+          echo "- **Helm Chart:** sre/helm/backend" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ All deployment tests passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Deployment tests failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Cleanup - Delete kind cluster
+        if: always()
+        run: |
+          kind delete cluster --name backend-test || true
+
+      - name: Cleanup - Remove Docker images
+        if: always()
+        run: |
+          docker rmi backend:pr-${{ github.run_number }} || true
+          docker system prune -f || true
