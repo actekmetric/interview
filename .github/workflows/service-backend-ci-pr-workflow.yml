@@ -156,7 +156,7 @@ jobs:
 
       - name: Create kind cluster
         run: |
-          kind create cluster --name backend-test --config sre/k8s/kind-config.yaml --wait 3m
+          kind create cluster --name backend-test --config sre/k8s/kind-config.yaml --wait 1m
 
       - name: Verify kind cluster
         run: |

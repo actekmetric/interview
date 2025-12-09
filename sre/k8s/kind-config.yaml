@@ -8,7 +8,45 @@ nodes:
     nodeRegistration:
       kubeletExtraArgs:
         node-labels: "ingress-ready=true"
+        # Reduce resource overhead for CI
+        max-pods: "50"
+        pods-per-core: "10"
+        # Speed up image pulls
+        serialize-image-pulls: "false"
+        image-pull-progress-deadline: "1m"
+        # Optimize eviction thresholds for CI
+        eviction-hard: "memory.available<500Mi,nodefs.available<5%"
+        eviction-soft: "memory.available<1Gi,nodefs.available<10%"
+        eviction-soft-grace-period: "memory.available=1m30s,nodefs.available=2m"
+  - |
+    kind: ClusterConfiguration
+    apiServer:
+      extraArgs:
+        # Reduce API server overhead
+        max-requests-inflight: "200"
+        max-mutating-requests-inflight: "100"
+    controllerManager:
+      extraArgs:
+        # Speed up controller loops
+        node-monitor-period: "2s"
+        node-monitor-grace-period: "16s"
+        pod-eviction-timeout: "30s"
+    scheduler:
+      extraArgs:
+        # Faster scheduling decisions
+        bind-address: "0.0.0.0"
   extraPortMappings:
   - containerPort: 30080
     hostPort: 8080
     protocol: TCP
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+      [plugins."io.containerd.grpc.v1.cri".registry.mirrors."ghcr.io"]
+        endpoint = ["https://ghcr.io"]
+  [plugins."io.containerd.grpc.v1.cri"]
+    # Reduce containerd overhead
+    disable_snapshot_annotations = true
+    discard_unpacked_layers = true
+    snapshotter = "overlayfs"
