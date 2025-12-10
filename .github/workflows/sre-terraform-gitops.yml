@@ -6,12 +6,8 @@ on:
       - master
       - main
     paths:
-      - 'sre/terraform/modules/**'
-      - 'sre/terragrunt/environments/dev/**'
-      # Uncomment when ready to enable QA
-      # - 'sre/terragrunt/environments/qa/**'
-      # Uncomment when ready to enable Prod
-      # - 'sre/terragrunt/environments/prod/**'
+      - 'sre/terraform/**'
+      - 'sre/terragrunt/**'
       - '.github/workflows/sre-terraform-gitops.yml'
       - '.github/actions/terraform-setup/**'
       - '.github/actions/aws-assume-role/**'
@@ -24,9 +20,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Detect which environment changed
-  detect-changes:
-    name: Detect Environment Changes
+  # Parse comment and determine action
+  parse-command:
+    name: Parse Command
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'pull_request') ||
@@ -34,66 +30,57 @@ jobs:
        github.event.issue.pull_request &&
        startsWith(github.event.comment.body, '/terraform'))
     outputs:
-      environments: ${{ steps.detect.outputs.environments }}
-      action: ${{ steps.detect.outputs.action }}
+      action: ${{ steps.parse.outputs.action }}
+      environment: ${{ steps.parse.outputs.environment }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref || github.event.issue.pull_request.head.ref }}
-
-      - name: Detect changed environments
-        id: detect
+      - name: Parse comment or set defaults
+        id: parse
         run: |
-          # Determine action from comment or default to plan
           if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
             COMMENT="${{ github.event.comment.body }}"
-            if [[ "$COMMENT" == "/terraform apply"* ]]; then
-              ACTION="apply"
-            elif [[ "$COMMENT" == "/terraform plan"* ]]; then
-              ACTION="plan"
+            echo "Comment received: $COMMENT"
+
+            # Parse: /terraform <action> <environment>
+            # Examples:
+            #   /terraform apply dev
+            #   /terraform plan qa
+            #   /terraform apply
+
+            if [[ "$COMMENT" =~ ^/terraform[[:space:]]+(apply|plan)([[:space:]]+)?(dev|qa|prod)?$ ]]; then
+              ACTION="${BASH_REMATCH[1]}"
+              ENV="${BASH_REMATCH[3]}"
+
+              # Default to dev if no environment specified
+              if [[ -z "$ENV" ]]; then
+                ENV="dev"
+              fi
+
+              echo "action=$ACTION" >> $GITHUB_OUTPUT
+              echo "environment=$ENV" >> $GITHUB_OUTPUT
+              echo "Parsed - Action: $ACTION, Environment: $ENV"
             else
-              echo "Unknown command"
+              echo "Invalid command format. Use: /terraform <apply|plan> [dev|qa|prod]"
               exit 1
             fi
           else
-            ACTION="plan"
+            # Pull request - always plan, always dev (for now)
+            echo "action=plan" >> $GITHUB_OUTPUT
+            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "Pull request - defaulting to plan dev"
           fi
-          echo "action=$ACTION" >> $GITHUB_OUTPUT
-
-          # Detect which environments changed
-          ENVS="[]"
-          if git diff --name-only origin/main...HEAD | grep -q "sre/terragrunt/environments/dev/"; then
-            ENVS=$(echo $ENVS | jq '. + ["dev"]')
-          fi
-          if git diff --name-only origin/main...HEAD | grep -q "sre/terragrunt/environments/qa/"; then
-            ENVS=$(echo $ENVS | jq '. + ["qa"]')
-          fi
-          if git diff --name-only origin/main...HEAD | grep -q "sre/terragrunt/environments/prod/"; then
-            ENVS=$(echo $ENVS | jq '. + ["prod"]')
-          fi
-          if git diff --name-only origin/main...HEAD | grep -q "sre/terraform/modules/"; then
-            # If modules changed, include all environments
-            ENVS='["dev","qa","prod"]'
-          fi
-
-          echo "environments=$ENVS" >> $GITHUB_OUTPUT
-          echo "Detected environments: $ENVS"
-          echo "Action: $ACTION"
 
   # Validate Terraform
   validate:
     name: Validate Terraform
     runs-on: ubuntu-latest
-    needs: detect-changes
-    if: needs.detect-changes.outputs.environments != '[]'
+    needs: parse-command
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref || github.event.issue.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -120,8 +107,8 @@ jobs:
   plan-dev:
     name: Plan Dev
     runs-on: ubuntu-latest
-    needs: [detect-changes, validate]
-    if: contains(fromJson(needs.detect-changes.outputs.environments), 'dev')
+    needs: [parse-command, validate]
+    if: needs.parse-command.outputs.environment == 'dev'
     permissions:
       id-token: write
       contents: read
@@ -133,7 +120,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref || github.event.issue.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -160,7 +147,7 @@ jobs:
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dev-plan
+          name: dev-plan-${{ github.run_id }}
           path: /tmp/dev-plan.txt
           retention-days: 5
 
@@ -177,10 +164,12 @@ jobs:
               planSummary = planOutput.substring(0, 60000) + '\n\n... (truncated)\n\nSee full output in job logs.';
             }
 
+            const prNumber = context.issue.number || context.payload.pull_request.number;
+
             const body = `## 🗺️ Terraform Plan: Dev
 
             <details>
-            <summary>📋 Plan Output</summary>
+            <summary>📋 Plan Output (click to expand)</summary>
 
             \`\`\`terraform
             ${planSummary}
@@ -190,13 +179,19 @@ jobs:
 
             **Next Steps:**
             - Review the plan above
-            - Comment \`/terraform apply\` to apply these changes
+            - Comment \`/terraform apply dev\` to apply these changes
             - Or see [full logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            **Available commands:**
+            - \`/terraform plan dev\` - Re-run plan for dev
+            - \`/terraform apply dev\` - Apply changes to dev
+            - \`/terraform plan qa\` - Plan for QA
+            - \`/terraform apply qa\` - Apply to QA (requires approval)
             `;
 
             // Find existing comment
             const { data: comments } = await github.rest.issues.listComments({
-              issue_number: context.issue.number || ${{ github.event.pull_request.number }},
+              issue_number: prNumber,
               owner: context.repo.owner,
               repo: context.repo.repo,
             });
@@ -217,7 +212,7 @@ jobs:
             } else {
               // Create new comment
               await github.rest.issues.createComment({
-                issue_number: context.issue.number || ${{ github.event.pull_request.number }},
+                issue_number: prNumber,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 body: body
@@ -228,10 +223,10 @@ jobs:
   apply-dev:
     name: Apply Dev
     runs-on: ubuntu-latest
-    needs: [detect-changes, plan-dev]
+    needs: [parse-command, plan-dev]
     if: |
-      needs.detect-changes.outputs.action == 'apply' &&
-      contains(fromJson(needs.detect-changes.outputs.environments), 'dev')
+      needs.parse-command.outputs.action == 'apply' &&
+      needs.parse-command.outputs.environment == 'dev'
     permissions:
       id-token: write
       contents: read
@@ -256,7 +251,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref || github.event.issue.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -280,7 +275,7 @@ jobs:
       - name: Upload apply artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dev-apply
+          name: dev-apply-${{ github.run_id }}
           path: /tmp/dev-apply.txt
           retention-days: 30
 
@@ -296,12 +291,14 @@ jobs:
               applySummary = applyOutput.substring(0, 60000) + '\n\n... (truncated)\n\nSee full output in job logs.';
             }
 
+            const prNumber = context.issue.number || context.payload.pull_request.number;
+
             const body = `## ✅ Terraform Apply: Dev
 
             Successfully applied infrastructure changes to **dev** environment!
 
             <details>
-            <summary>📋 Apply Output</summary>
+            <summary>📋 Apply Output (click to expand)</summary>
 
             \`\`\`terraform
             ${applySummary}
@@ -315,7 +312,7 @@ jobs:
             `;
 
             await github.rest.issues.createComment({
-              issue_number: context.issue.number || ${{ github.event.pull_request.number }},
+              issue_number: prNumber,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: body
@@ -325,8 +322,8 @@ jobs:
   plan-qa:
     name: Plan QA
     runs-on: ubuntu-latest
-    needs: [detect-changes, validate]
-    if: contains(fromJson(needs.detect-changes.outputs.environments), 'qa')
+    needs: [parse-command, validate]
+    if: needs.parse-command.outputs.environment == 'qa'
     permissions:
       id-token: write
       contents: read
@@ -338,7 +335,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref || github.event.issue.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -361,7 +358,7 @@ jobs:
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
         with:
-          name: qa-plan
+          name: qa-plan-${{ github.run_id }}
           path: /tmp/qa-plan.txt
           retention-days: 5
 
@@ -377,10 +374,12 @@ jobs:
               planSummary = planOutput.substring(0, 60000) + '\n\n... (truncated)\n\nSee full output in job logs.';
             }
 
+            const prNumber = context.issue.number || context.payload.pull_request.number;
+
             const body = `## 🗺️ Terraform Plan: QA
 
             <details>
-            <summary>📋 Plan Output</summary>
+            <summary>📋 Plan Output (click to expand)</summary>
 
             \`\`\`terraform
             ${planSummary}
@@ -390,12 +389,12 @@ jobs:
 
             **Next Steps:**
             - Review the plan above
-            - Comment \`/terraform apply\` to apply these changes
+            - Comment \`/terraform apply qa\` to apply these changes
             - Or see [full logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
             `;
 
             const { data: comments } = await github.rest.issues.listComments({
-              issue_number: context.issue.number || ${{ github.event.pull_request.number }},
+              issue_number: prNumber,
               owner: context.repo.owner,
               repo: context.repo.repo,
             });
@@ -414,7 +413,7 @@ jobs:
               });
             } else {
               await github.rest.issues.createComment({
-                issue_number: context.issue.number || ${{ github.event.pull_request.number }},
+                issue_number: prNumber,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 body: body
@@ -425,10 +424,10 @@ jobs:
   apply-qa:
     name: Apply QA
     runs-on: ubuntu-latest
-    needs: [detect-changes, plan-qa]
+    needs: [parse-command, plan-qa]
     if: |
-      needs.detect-changes.outputs.action == 'apply' &&
-      contains(fromJson(needs.detect-changes.outputs.environments), 'qa')
+      needs.parse-command.outputs.action == 'apply' &&
+      needs.parse-command.outputs.environment == 'qa'
     permissions:
       id-token: write
       contents: read
@@ -453,7 +452,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref || github.event.issue.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -475,7 +474,7 @@ jobs:
       - name: Upload apply artifact
         uses: actions/upload-artifact@v4
         with:
-          name: qa-apply
+          name: qa-apply-${{ github.run_id }}
           path: /tmp/qa-apply.txt
           retention-days: 30
 
@@ -491,12 +490,14 @@ jobs:
               applySummary = applyOutput.substring(0, 60000) + '\n\n... (truncated)\n\nSee full output in job logs.';
             }
 
+            const prNumber = context.issue.number || context.payload.pull_request.number;
+
             const body = `## ✅ Terraform Apply: QA
 
             Successfully applied infrastructure changes to **qa** environment!
 
             <details>
-            <summary>📋 Apply Output</summary>
+            <summary>📋 Apply Output (click to expand)</summary>
 
             \`\`\`terraform
             ${applySummary}
@@ -510,7 +511,7 @@ jobs:
             `;
 
             await github.rest.issues.createComment({
-              issue_number: context.issue.number || ${{ github.event.pull_request.number }},
+              issue_number: prNumber,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: body
@@ -520,8 +521,8 @@ jobs:
   plan-prod:
     name: Plan Prod
     runs-on: ubuntu-latest
-    needs: [detect-changes, validate]
-    if: contains(fromJson(needs.detect-changes.outputs.environments), 'prod')
+    needs: [parse-command, validate]
+    if: needs.parse-command.outputs.environment == 'prod'
     permissions:
       id-token: write
       contents: read
@@ -533,7 +534,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref || github.event.issue.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -556,7 +557,7 @@ jobs:
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
         with:
-          name: prod-plan
+          name: prod-plan-${{ github.run_id }}
           path: /tmp/prod-plan.txt
           retention-days: 5
 
@@ -572,10 +573,12 @@ jobs:
               planSummary = planOutput.substring(0, 60000) + '\n\n... (truncated)\n\nSee full output in job logs.';
             }
 
+            const prNumber = context.issue.number || context.payload.pull_request.number;
+
             const body = `## 🗺️ Terraform Plan: Prod
 
             <details>
-            <summary>📋 Plan Output</summary>
+            <summary>📋 Plan Output (click to expand)</summary>
 
             \`\`\`terraform
             ${planSummary}
@@ -585,14 +588,14 @@ jobs:
 
             **Next Steps:**
             - Review the plan above carefully
-            - Comment \`/terraform apply\` to apply these changes
+            - Comment \`/terraform apply prod\` to apply these changes
             - Or see [full logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
             ⚠️ **Warning:** This will affect production infrastructure!
             `;
 
             const { data: comments } = await github.rest.issues.listComments({
-              issue_number: context.issue.number || ${{ github.event.pull_request.number }},
+              issue_number: prNumber,
               owner: context.repo.owner,
               repo: context.repo.repo,
             });
@@ -611,7 +614,7 @@ jobs:
               });
             } else {
               await github.rest.issues.createComment({
-                issue_number: context.issue.number || ${{ github.event.pull_request.number }},
+                issue_number: prNumber,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 body: body
@@ -622,10 +625,10 @@ jobs:
   apply-prod:
     name: Apply Prod
     runs-on: ubuntu-latest
-    needs: [detect-changes, plan-prod]
+    needs: [parse-command, plan-prod]
     if: |
-      needs.detect-changes.outputs.action == 'apply' &&
-      contains(fromJson(needs.detect-changes.outputs.environments), 'prod')
+      needs.parse-command.outputs.action == 'apply' &&
+      needs.parse-command.outputs.environment == 'prod'
     permissions:
       id-token: write
       contents: read
@@ -650,7 +653,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref || github.event.issue.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -672,7 +675,7 @@ jobs:
       - name: Upload apply artifact
         uses: actions/upload-artifact@v4
         with:
-          name: prod-apply
+          name: prod-apply-${{ github.run_id }}
           path: /tmp/prod-apply.txt
           retention-days: 30
 
@@ -688,12 +691,14 @@ jobs:
               applySummary = applyOutput.substring(0, 60000) + '\n\n... (truncated)\n\nSee full output in job logs.';
             }
 
+            const prNumber = context.issue.number || context.payload.pull_request.number;
+
             const body = `## ✅ Terraform Apply: Prod
 
             Successfully applied infrastructure changes to **prod** environment!
 
             <details>
-            <summary>📋 Apply Output</summary>
+            <summary>📋 Apply Output (click to expand)</summary>
 
             \`\`\`terraform
             ${applySummary}
@@ -707,7 +712,7 @@ jobs:
             `;
 
             await github.rest.issues.createComment({
-              issue_number: context.issue.number || ${{ github.event.pull_request.number }},
+              issue_number: prNumber,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: body
