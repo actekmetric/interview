@@ -47,3 +47,18 @@ output "kms_key_arn" {
   description = "ARN of the KMS key for state encryption (if enabled)"
   value       = var.enable_kms_encryption ? aws_kms_key.terraform_state[0].arn : null
 }
+
+output "github_oidc_provider_arn" {
+  description = "ARN of the GitHub OIDC provider (if enabled)"
+  value       = var.enable_github_oidc ? aws_iam_openid_connect_provider.github[0].arn : null
+}
+
+output "github_actions_role_arn" {
+  description = "ARN of the GitHub Actions IAM role (if enabled)"
+  value       = var.enable_github_oidc ? aws_iam_role.github_actions[0].arn : null
+}
+
+output "github_actions_role_name" {
+  description = "Name of the GitHub Actions IAM role (if enabled)"
+  value       = var.enable_github_oidc ? aws_iam_role.github_actions[0].name : null
+}

@@ -55,3 +55,21 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "github_org" {
+  description = "GitHub organization name"
+  type        = string
+  default     = ""
+}
+
+variable "github_repo" {
+  description = "GitHub repository name"
+  type        = string
+  default     = ""
+}
+
+variable "enable_github_oidc" {
+  description = "Enable GitHub OIDC provider and GitHubActionsRole"
+  type        = bool
+  default     = true
+}

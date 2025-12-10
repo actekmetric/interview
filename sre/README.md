@@ -59,30 +59,50 @@ terraform init
 terraform apply \
   -var="environment=dev" \
   -var="account_id=096610237522" \
-  -var="region=us-east-1"
+  -var="region=us-east-1" \
+  -var="github_org=your-github-org" \
+  -var="github_repo=your-repo-name"
 ```
 
 This creates:
 - S3 bucket: `tekmetric-terraform-state-{account-id}`
 - DynamoDB table: `tekmetric-terraform-locks-{account-id}`
+- **GitHub OIDC provider** (for keyless authentication)
+- **GitHubActionsRole-{environment}** (for GitHub Actions workflows)
 - IAM roles: `TerraformExecution`, `TerraformStateAccess`
+
+**Important:** After the bootstrap completes, note the `github_actions_role_arn` output - you'll need this for GitHub Secrets.
 
 Repeat for QA and Prod accounts.
 
 ### Step 2: Configure GitHub Secrets
 
-In GitHub repository settings, add these secrets:
+The bootstrap step (Step 1) already created the GitHub OIDC provider and IAM roles. Now you just need to configure GitHub Secrets.
 
+In GitHub repository settings (Settings → Secrets and variables → Actions), add these secrets using the outputs from the bootstrap:
+
+**For Dev:**
 ```
-AWS_DEV_ACCOUNT_ID=123456789012
-AWS_DEV_ROLE_ARN=arn:aws:iam::123456789012:role/GitHubActionsRole-dev
+AWS_DEV_ACCOUNT_ID=123456789012  # Your actual AWS account ID
+AWS_DEV_ROLE_ARN=<copy from bootstrap output: github_actions_role_arn>
+```
 
+**For QA:**
+```
 AWS_QA_ACCOUNT_ID=234567890123
-AWS_QA_ROLE_ARN=arn:aws:iam::234567890123:role/GitHubActionsRole-qa
-
-AWS_PROD_ACCOUNT_ID=345678901234
-AWS_PROD_ROLE_ARN=arn:aws:iam::345678901234:role/GitHubActionsRole-prod
+AWS_QA_ROLE_ARN=<copy from bootstrap output: github_actions_role_arn>
 ```
+
+**For Prod:**
+```
+AWS_PROD_ACCOUNT_ID=345678901234
+AWS_PROD_ROLE_ARN=<copy from bootstrap output: github_actions_role_arn>
+```
+
+**Important:**
+- No AWS access keys or secret keys are needed! OIDC provides temporary credentials automatically.
+- The bootstrap module created everything needed for OIDC authentication.
+- Simply copy the `github_actions_role_arn` output from each bootstrap run.
 
 ### Step 3: Update Account IDs
 

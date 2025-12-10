@@ -156,6 +156,93 @@ resource "aws_dynamodb_table" "terraform_locks" {
   )
 }
 
+# GitHub OIDC Provider for GitHub Actions
+resource "aws_iam_openid_connect_provider" "github" {
+  count = var.enable_github_oidc ? 1 : 0
+
+  url = "https://token.actions.githubusercontent.com"
+
+  client_id_list = [
+    "sts.amazonaws.com"
+  ]
+
+  thumbprint_list = [
+    "6938fd4d98bab03faadb97b34396831e3780aea1"
+  ]
+
+  tags = merge(
+    local.common_tags,
+    {
+      Name = "GitHubActions-OIDC"
+    }
+  )
+}
+
+# IAM Role for GitHub Actions
+resource "aws_iam_role" "github_actions" {
+  count = var.enable_github_oidc ? 1 : 0
+
+  name = "GitHubActionsRole-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = aws_iam_openid_connect_provider.github[0].arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          }
+          StringLike = {
+            "token.actions.githubusercontent.com:sub" = var.github_org != "" && var.github_repo != "" ? "repo:${var.github_org}/${var.github_repo}:*" : "repo:*/*:*"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = merge(
+    local.common_tags,
+    {
+      Name = "GitHubActionsRole-${var.environment}"
+    }
+  )
+}
+
+# IAM Policy for GitHub Actions role
+resource "aws_iam_role_policy" "github_actions" {
+  count = var.enable_github_oidc ? 1 : 0
+
+  name = "GitHubActionsPolicy"
+  role = aws_iam_role.github_actions[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:*",
+          "eks:*",
+          "elasticloadbalancing:*",
+          "autoscaling:*",
+          "cloudwatch:*",
+          "logs:*",
+          "iam:*",
+          "kms:*",
+          "s3:*",
+          "dynamodb:*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # IAM role for Terraform execution
 resource "aws_iam_role" "terraform_execution" {
   name = "TerraformExecution"
