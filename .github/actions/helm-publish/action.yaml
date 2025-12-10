@@ -58,6 +58,7 @@ runs:
       shell: bash
       run: |
         CHART_FILE="${{ inputs.chart-path }}/Chart.yaml"
+        VALUES_FILE="${{ inputs.chart-path }}/values.yaml"
 
         if [ -n "${{ inputs.chart-version }}" ]; then
           echo "📝 Updating chart version to ${{ inputs.chart-version }}"
@@ -67,12 +68,19 @@ runs:
         if [ -n "${{ inputs.app-version }}" ]; then
           echo "📝 Updating appVersion to ${{ inputs.app-version }}"
           sed -i.bak "s/^appVersion:.*/appVersion: \"${{ inputs.app-version }}\"/" "${CHART_FILE}"
+
+          # Update the image tag in values.yaml to match appVersion
+          echo "📝 Updating image tag in values.yaml to ${{ inputs.app-version }}"
+          sed -i.bak 's/tag: ""/tag: "${{ inputs.app-version }}"/' "${VALUES_FILE}"
         fi
 
-        rm -f "${CHART_FILE}.bak"
+        rm -f "${CHART_FILE}.bak" "${VALUES_FILE}.bak"
 
         echo "📋 Updated Chart.yaml:"
         cat "${CHART_FILE}"
+        echo ""
+        echo "📋 Image configuration in values.yaml:"
+        grep -A4 "# Backend container image" "${VALUES_FILE}"
 
     - name: Add Helm Repositories for Dependencies
       shell: bash

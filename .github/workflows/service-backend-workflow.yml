@@ -115,26 +115,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 8
-        uses: actions/setup-java@v4
-        with:
-          java-version: '8'
-          distribution: 'temurin'
-          cache: 'maven'
-
-      - name: Get POM Version
-        id: pom-version
-        working-directory: ./backend
-        run: |
-          POM_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-          echo "version=${POM_VERSION}" >> $GITHUB_OUTPUT
-          echo "📦 POM Version: ${POM_VERSION}"
-
       - name: Publish Helm Chart to GitHub Pages
         uses: ./.github/actions/helm-publish
         with:
           chart-path: sre/helm/backend
-          chart-version: ${{ steps.pom-version.outputs.version }}
+          chart-version: ${{ needs.build-and-test.outputs.version }}
           app-version: ${{ needs.build-and-test.outputs.version }}
           helm-version: v3.14.0
           skip-existing: true
