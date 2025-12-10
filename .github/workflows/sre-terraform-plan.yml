@@ -6,8 +6,12 @@ on:
       - master
       - main
     paths:
-      - 'sre/terraform/**'
-      - 'sre/terragrunt/**'
+      - 'sre/terraform/modules/**'
+      - 'sre/terragrunt/environments/dev/**'
+      # Uncomment when ready to enable QA
+      # - 'sre/terragrunt/environments/qa/**'
+      # Uncomment when ready to enable Prod
+      # - 'sre/terragrunt/environments/prod/**'
       - '.github/workflows/sre-terraform-plan.yml'
       - '.github/actions/terraform-setup/**'
       - '.github/actions/aws-assume-role/**'
