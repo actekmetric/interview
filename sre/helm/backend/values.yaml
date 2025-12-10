@@ -84,7 +84,7 @@ tekmetric-common-chart:
   observability:
     enabled: false
     otel:
-      enabled: true
+      enabled: false
       endpoint: "http://otel-collector:4318"
       protocol: "http/protobuf"
       serviceName: "backend-service"
