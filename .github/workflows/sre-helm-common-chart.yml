@@ -11,38 +11,62 @@ on:
 
   workflow_dispatch:
 
+# Cancel previous runs for the same branch/PR
+concurrency:
+  group: common-chart-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  release:
+  publish-helm-chart:
+    name: Publish Common Helm Chart
     runs-on: ubuntu-latest
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
     permissions:
       contents: write
       pages: write
-      id-token: write
-    
+
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Configure Git
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-
-      - name: Install Helm
-        uses: azure/setup-helm@v3
+      - name: Publish Helm Chart to GitHub Pages
+        uses: ./.github/actions/helm-publish
         with:
-          version: v3.14.0
+          chart-path: sre/helm/common/charts/tekmetric-common-chart
+          helm-version: v3.14.0
+          skip-existing: true
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Lint Helm Chart
+  workflow-summary:
+    name: Workflow Summary
+    runs-on: ubuntu-latest
+    needs: [publish-helm-chart]
+    if: always()
+
+    steps:
+      - name: Generate Workflow Summary
         run: |
-          helm lint sre/helm/common/charts/tekmetric-common-chart/
+          echo "## 🚀 Common Helm Chart CI/CD Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** [\`${GITHUB_SHA::8}\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }} (${{ github.actor }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
-      - name: Run chart-releaser
-        uses: helm/chart-releaser-action@v1.6.0
-        with:
-          charts_dir: sre/helm/common/charts
-        env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-          CR_SKIP_EXISTING: true
+          echo "### Job Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Publish Helm Chart
+          if [[ "${{ needs.publish-helm-chart.result }}" == "success" ]]; then
+            echo "| Publish Common Chart | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.publish-helm-chart.result }}" == "failure" ]]; then
+            echo "| Publish Common Chart | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Publish Common Chart | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
