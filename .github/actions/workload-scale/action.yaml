@@ -1,0 +1,57 @@
+name: 'Scale Kubernetes Workloads'
+description: 'Scale workloads to zero or restore to saved replica counts'
+
+inputs:
+  action:
+    description: 'Action to perform (save, restore)'
+    required: true
+  environment:
+    description: 'Environment name'
+    required: true
+  namespace:
+    description: 'Kubernetes namespace'
+    required: false
+    default: 'default'
+
+outputs:
+  status:
+    description: 'Status of the scaling operation'
+    value: ${{ steps.scale.outputs.status }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Scale workloads
+      id: scale
+      shell: bash
+      run: |
+        chmod +x sre/scripts/scale-workloads.sh
+        ./sre/scripts/scale-workloads.sh \
+          ${{ inputs.environment }} \
+          ${{ inputs.action }} \
+          ${{ inputs.namespace }}
+
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Get deployment status
+      if: inputs.action == 'restore'
+      shell: bash
+      run: |
+        echo "## Deployment Status" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        kubectl get deployments -n ${{ inputs.namespace }} \
+          -o custom-columns=NAME:.metadata.name,REPLICAS:.spec.replicas,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas \
+          >> $GITHUB_STEP_SUMMARY || true
+
+    - name: Summary
+      shell: bash
+      run: |
+        echo "## Workload Scaling Complete" >> $GITHUB_STEP_SUMMARY
+        echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Action:** ${{ inputs.action }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Namespace:** ${{ inputs.namespace }}" >> $GITHUB_STEP_SUMMARY
