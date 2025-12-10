@@ -71,7 +71,7 @@ runs:
 
           # Update the image tag in values.yaml to match appVersion
           echo "📝 Updating image tag in values.yaml to ${{ inputs.app-version }}"
-          sed -i.bak 's/tag: ""/tag: "${{ inputs.app-version }}"/' "${VALUES_FILE}"
+          sed -i.bak "s/tag: .*/tag: \"${{ inputs.app-version }}\"  # Defaults to Chart.AppVersion/" "${VALUES_FILE}"
         fi
 
         rm -f "${CHART_FILE}.bak" "${VALUES_FILE}.bak"
