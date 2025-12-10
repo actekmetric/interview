@@ -90,6 +90,32 @@ resource "aws_s3_bucket_public_access_block" "terraform_state" {
   restrict_public_buckets = true
 }
 
+# Bucket policy (required for some Terraform operations)
+resource "aws_s3_bucket_policy" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "DenyInsecureTransport"
+        Effect = "Deny"
+        Principal = "*"
+        Action = "s3:*"
+        Resource = [
+          aws_s3_bucket.terraform_state.arn,
+          "${aws_s3_bucket.terraform_state.arn}/*"
+        ]
+        Condition = {
+          Bool = {
+            "aws:SecureTransport" = "false"
+          }
+        }
+      }
+    ]
+  })
+}
+
 # Lifecycle policy for old versions
 resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
   count = var.enable_versioning ? 1 : 0
@@ -269,6 +295,13 @@ resource "aws_iam_role" "terraform_execution" {
             "sts:ExternalId" = "terraform-execution"
           }
         }
+      },
+      {
+        Effect = "Allow"
+        Principal = {
+          AWS = var.enable_github_oidc ? aws_iam_role.github_actions[0].arn : "arn:aws:iam::${var.account_id}:root"
+        }
+        Action = "sts:AssumeRole"
       }
     ]
   })
@@ -307,6 +340,24 @@ resource "aws_iam_role_policy" "terraform_execution" {
             "aws:RequestedRegion" = var.region
           }
         }
+      },
+      {
+        Effect = "Allow"
+        Action = "s3:*"
+        Resource = [
+          aws_s3_bucket.terraform_state.arn,
+          "${aws_s3_bucket.terraform_state.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:DescribeTable"
+        ]
+        Resource = aws_dynamodb_table.terraform_locks.arn
       }
     ]
   })
