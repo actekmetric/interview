@@ -1,4 +1,4 @@
-name: Helm Chart Common
+name: Common Helm Chart CI/CD
 
 on:
   push:
@@ -24,6 +24,9 @@ jobs:
     permissions:
       contents: write
       pages: write
+    outputs:
+      chart-version: ${{ steps.get-version.outputs.version }}
+      chart-name: ${{ steps.get-version.outputs.name }}
 
     steps:
       - name: Checkout code
@@ -31,13 +34,67 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Publish Helm Chart to GitHub Pages
-        uses: ./.github/actions/helm-publish
+      - name: Configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
         with:
-          chart-path: sre/helm/common/charts/tekmetric-common-chart
-          helm-version: v3.14.0
-          skip-existing: true
-          token: ${{ secrets.GITHUB_TOKEN }}
+          version: v3.14.0
+
+      - name: Lint Helm Chart
+        run: |
+          echo "🔍 Linting Helm chart..."
+          helm lint sre/helm/common/charts/tekmetric-common-chart/
+          echo "✅ Helm chart linting passed"
+
+      - name: Get Chart Info
+        id: get-version
+        run: |
+          CHART_NAME=$(helm show chart sre/helm/common/charts/tekmetric-common-chart | grep '^name:' | awk '{print $2}')
+          CHART_VERSION=$(helm show chart sre/helm/common/charts/tekmetric-common-chart | grep '^version:' | awk '{print $2}')
+          APP_VERSION=$(helm show chart sre/helm/common/charts/tekmetric-common-chart | grep '^appVersion:' | awk '{print $2}' | tr -d '"')
+
+          echo "name=${CHART_NAME}" >> $GITHUB_OUTPUT
+          echo "version=${CHART_VERSION}" >> $GITHUB_OUTPUT
+          echo "app-version=${APP_VERSION}" >> $GITHUB_OUTPUT
+
+          echo "📦 Chart: ${CHART_NAME}"
+          echo "🏷️  Version: ${CHART_VERSION}"
+          echo "🐳 App Version: ${APP_VERSION}"
+
+      - name: Validate Chart Template
+        run: |
+          echo "🔍 Validating Helm chart templates..."
+          helm template test-release sre/helm/common/charts/tekmetric-common-chart --dry-run > /dev/null
+          echo "✅ Helm chart templates are valid"
+
+      - name: Run chart-releaser
+        uses: helm/chart-releaser-action@v1.6.0
+        with:
+          charts_dir: sre/helm/common/charts
+        env:
+          CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CR_SKIP_EXISTING: true
+
+      - name: Summary
+        run: |
+          echo "## 📦 Common Helm Chart Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Chart Name:** \`${{ steps.get-version.outputs.name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Chart Version:** \`${{ steps.get-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**App Version:** \`${{ steps.get-version.outputs.app-version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Add as Dependency" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`yaml" >> $GITHUB_STEP_SUMMARY
+          echo "dependencies:" >> $GITHUB_STEP_SUMMARY
+          echo "  - name: ${{ steps.get-version.outputs.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "    version: \"${{ steps.get-version.outputs.version }}\"" >> $GITHUB_STEP_SUMMARY
+          echo "    repository: \"https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/\"" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   workflow-summary:
     name: Workflow Summary
