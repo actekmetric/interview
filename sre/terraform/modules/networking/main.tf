@@ -223,7 +223,7 @@ resource "aws_security_group" "eks_nodes" {
   tags = merge(
     local.common_tags,
     {
-      Name                                                = "tekmetric-${var.environment}-eks-nodes-sg"
+      Name                                                 = "tekmetric-${var.environment}-eks-nodes-sg"
       "kubernetes.io/cluster/tekmetric-${var.environment}" = "owned"
     }
   )

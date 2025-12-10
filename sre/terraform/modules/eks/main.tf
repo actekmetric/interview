@@ -200,9 +200,9 @@ resource "aws_eks_node_group" "main" {
   tags = merge(
     local.common_tags,
     {
-      Name                                                = "${var.cluster_name}-${each.key}"
-      "k8s.io/cluster-autoscaler/${var.cluster_name}"     = "owned"
-      "k8s.io/cluster-autoscaler/enabled"                 = "true"
+      Name                                            = "${var.cluster_name}-${each.key}"
+      "k8s.io/cluster-autoscaler/${var.cluster_name}" = "owned"
+      "k8s.io/cluster-autoscaler/enabled"             = "true"
     }
   )
 }
@@ -212,7 +212,7 @@ resource "aws_eks_addon" "vpc_cni" {
   cluster_name = aws_eks_cluster.main.name
   addon_name   = "vpc-cni"
 
-  addon_version     = data.aws_eks_addon_version.vpc_cni.version
+  addon_version               = data.aws_eks_addon_version.vpc_cni.version
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "PRESERVE"
 
@@ -223,7 +223,7 @@ resource "aws_eks_addon" "coredns" {
   cluster_name = aws_eks_cluster.main.name
   addon_name   = "coredns"
 
-  addon_version     = data.aws_eks_addon_version.coredns.version
+  addon_version               = data.aws_eks_addon_version.coredns.version
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "PRESERVE"
 
@@ -238,7 +238,7 @@ resource "aws_eks_addon" "kube_proxy" {
   cluster_name = aws_eks_cluster.main.name
   addon_name   = "kube-proxy"
 
-  addon_version     = data.aws_eks_addon_version.kube_proxy.version
+  addon_version               = data.aws_eks_addon_version.kube_proxy.version
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "PRESERVE"
 
@@ -249,7 +249,7 @@ resource "aws_eks_addon" "ebs_csi_driver" {
   cluster_name = aws_eks_cluster.main.name
   addon_name   = "aws-ebs-csi-driver"
 
-  addon_version     = data.aws_eks_addon_version.ebs_csi_driver.version
+  addon_version               = data.aws_eks_addon_version.ebs_csi_driver.version
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "PRESERVE"
 
