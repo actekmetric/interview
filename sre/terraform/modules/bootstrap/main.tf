@@ -238,6 +238,14 @@ resource "aws_iam_role_policy" "github_actions" {
           "dynamodb:*"
         ]
         Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = "sts:AssumeRole"
+        Resource = [
+          "arn:aws:iam::${var.account_id}:role/TerraformExecution",
+          "arn:aws:iam::${var.account_id}:role/TerraformStateAccess"
+        ]
       }
     ]
   })
