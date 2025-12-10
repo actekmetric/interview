@@ -141,8 +141,8 @@ jobs:
           # Capture plan output
           terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
 
-          # Save for comment
-          cat plan.txt > /tmp/dev-plan.txt
+          # Strip ANSI color codes and save for comment
+          sed 's/\x1b\[[0-9;]*m//g' plan.txt > /tmp/dev-plan.txt
 
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
@@ -353,7 +353,7 @@ jobs:
           cd sre/terragrunt/environments/qa
           echo "Running plan for qa environment..."
           terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
-          cat plan.txt > /tmp/qa-plan.txt
+          sed 's/\x1b\[[0-9;]*m//g' plan.txt > /tmp/qa-plan.txt
 
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
@@ -552,7 +552,7 @@ jobs:
           cd sre/terragrunt/environments/prod
           echo "Running plan for prod environment..."
           terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
-          cat plan.txt > /tmp/prod-plan.txt
+          sed 's/\x1b\[[0-9;]*m//g' plan.txt > /tmp/prod-plan.txt
 
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
