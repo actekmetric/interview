@@ -94,6 +94,8 @@ jobs:
         uses: ./.github/actions/aws-assume-role
         with:
           environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
 
       - name: Terragrunt Plan
         id: plan
@@ -138,6 +140,8 @@ jobs:
         uses: ./.github/actions/aws-assume-role
         with:
           environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
 
       - name: Terragrunt Apply
         run: |
@@ -186,6 +190,8 @@ jobs:
         uses: ./.github/actions/aws-assume-role
         with:
           environment: qa
+          role-arn: ${{ secrets.AWS_QA_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_QA_ACCOUNT_ID }}
 
       - name: Terragrunt Plan
         run: |
@@ -216,6 +222,8 @@ jobs:
         uses: ./.github/actions/aws-assume-role
         with:
           environment: qa
+          role-arn: ${{ secrets.AWS_QA_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_QA_ACCOUNT_ID }}
 
       - name: Terragrunt Apply
         run: |
@@ -252,6 +260,8 @@ jobs:
         uses: ./.github/actions/aws-assume-role
         with:
           environment: prod
+          role-arn: ${{ secrets.AWS_PROD_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_PROD_ACCOUNT_ID }}
 
       - name: Terragrunt Plan
         run: |
@@ -282,6 +292,8 @@ jobs:
         uses: ./.github/actions/aws-assume-role
         with:
           environment: prod
+          role-arn: ${{ secrets.AWS_PROD_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_PROD_ACCOUNT_ID }}
 
       - name: Terragrunt Apply
         run: |

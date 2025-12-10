@@ -56,7 +56,9 @@ terraform init
 terraform plan \
   -var="environment=dev" \
   -var="account_id=123456789012" \
-  -var="region=us-east-1"
+  -var="region=us-east-1" \
+  -var="github_org=your-org" \
+  -var="github_repo=your-repo"
 
 # Apply the changes (this will use LOCAL state initially)
 terraform apply \

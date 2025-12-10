@@ -33,7 +33,8 @@ jobs:
         uses: ./.github/actions/aws-assume-role
         with:
           environment: ${{ inputs.environment }}
-
+          role-arn: ${{ inputs.environment == 'dev' && secrets.AWS_DEV_ROLE_ARN || inputs.environment == 'qa' && secrets.AWS_QA_ROLE_ARN || secrets.AWS_PROD_ROLE_ARN }}
+          account-id: ${{ inputs.environment == 'dev' && secrets.AWS_DEV_ACCOUNT_ID || inputs.environment == 'qa' && secrets.AWS_QA_ACCOUNT_ID || secrets.AWS_PROD_ACCOUNT_ID }}
       - name: Get EKS credentials
         run: |
           aws eks update-kubeconfig \

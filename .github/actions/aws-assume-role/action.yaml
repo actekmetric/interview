@@ -5,6 +5,12 @@ inputs:
   environment:
     description: 'Environment name (dev, qa, prod)'
     required: true
+  role-arn:
+    description: 'AWS IAM Role ARN to assume'
+    required: true
+  account-id:
+    description: 'AWS Account ID'
+    required: true
   aws-region:
     description: 'AWS Region'
     required: false
@@ -18,33 +24,11 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Get AWS credentials for environment
-      id: get-creds
-      shell: bash
-      run: |
-        ENV_UPPER=$(echo "${{ inputs.environment }}" | tr '[:lower:]' '[:upper:]')
-
-        # Get role ARN and account ID from secrets
-        ROLE_ARN_VAR="AWS_${ENV_UPPER}_ROLE_ARN"
-        ACCOUNT_ID_VAR="AWS_${ENV_UPPER}_ACCOUNT_ID"
-
-        echo "role-arn=${!ROLE_ARN_VAR}" >> $GITHUB_OUTPUT
-        echo "account-id=${!ACCOUNT_ID_VAR}" >> $GITHUB_OUTPUT
-
-        echo "🔐 Using role: ${!ROLE_ARN_VAR}"
-      env:
-        AWS_DEV_ROLE_ARN: ${{ secrets.AWS_DEV_ROLE_ARN || 'arn:aws:iam::123456789012:role/GitHubActionsRole-dev' }}
-        AWS_DEV_ACCOUNT_ID: ${{ secrets.AWS_DEV_ACCOUNT_ID || '123456789012' }}
-        AWS_QA_ROLE_ARN: ${{ secrets.AWS_QA_ROLE_ARN || 'arn:aws:iam::234567890123:role/GitHubActionsRole-qa' }}
-        AWS_QA_ACCOUNT_ID: ${{ secrets.AWS_QA_ACCOUNT_ID || '234567890123' }}
-        AWS_PROD_ROLE_ARN: ${{ secrets.AWS_PROD_ROLE_ARN || 'arn:aws:iam::345678901234:role/GitHubActionsRole-prod' }}
-        AWS_PROD_ACCOUNT_ID: ${{ secrets.AWS_PROD_ACCOUNT_ID || '345678901234' }}
-
     - name: Configure AWS credentials
       id: assume
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: ${{ steps.get-creds.outputs.role-arn }}
+        role-to-assume: ${{ inputs.role-arn }}
         aws-region: ${{ inputs.aws-region }}
         role-session-name: GitHubActions-${{ github.repository }}-${{ github.run_id }}
         role-duration-seconds: 3600
@@ -52,7 +36,8 @@ runs:
     - name: Verify AWS identity
       shell: bash
       run: |
-        echo "✅ Successfully assumed role"
+        echo "✅ Successfully assumed role for ${{ inputs.environment }}"
+        echo "🔐 Role: ${{ inputs.role-arn }}"
         aws sts get-caller-identity
 
     - name: Summary
@@ -61,4 +46,5 @@ runs:
         echo "## AWS Authentication" >> $GITHUB_STEP_SUMMARY
         echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
         echo "**Region:** ${{ inputs.aws-region }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Account ID:** ${{ steps.get-creds.outputs.account-id }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Role ARN:** ${{ inputs.role-arn }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Account ID:** ${{ inputs.account-id }}" >> $GITHUB_STEP_SUMMARY
