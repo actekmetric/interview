@@ -30,7 +30,7 @@ runs:
       with:
         role-to-assume: ${{ inputs.role-arn }}
         aws-region: ${{ inputs.aws-region }}
-        role-session-name: GitHubActions-${{ github.repository }}-${{ github.run_id }}
+        role-session-name: GHA-${{ inputs.environment }}-${{ github.run_id }}-${{ github.sha }}
         role-duration-seconds: 3600
 
     - name: Verify AWS identity
