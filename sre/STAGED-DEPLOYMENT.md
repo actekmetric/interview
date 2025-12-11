@@ -126,7 +126,18 @@ eks-addons (needs eks-cluster + iam role ARNs)
 On PR creation/update:
 - Automatically runs `plan` with `stage: all` on dev environment
 - Shows plan output in PR comment
-- Use `/terraform apply dev` comment to apply all stages
+
+**PR Comments Support Stage Specification:**
+```bash
+/terraform plan dev                # Plan all stages (default)
+/terraform plan dev 1-networking   # Plan only networking
+/terraform apply dev               # Apply all stages
+/terraform apply dev 3-iam         # Apply only IAM stage
+/terraform apply qa 2-eks-cluster  # Apply EKS cluster in QA
+
+# Syntax: /terraform <action> [environment] [stage]
+# Defaults: environment=dev, stage=all
+```
 
 ## Tips
 

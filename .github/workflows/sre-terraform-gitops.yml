@@ -80,27 +80,41 @@ jobs:
             COMMENT="${{ github.event.comment.body }}"
             echo "Comment received: $COMMENT"
 
-            # Parse: /terraform <action> <environment>
+            # Parse: /terraform <action> <environment> [stage]
             # Examples:
             #   /terraform apply dev
             #   /terraform plan qa
-            #   /terraform apply
+            #   /terraform apply dev all
+            #   /terraform plan dev 1-networking
+            #   /terraform apply qa 3-iam
 
-            if [[ "$COMMENT" =~ ^/terraform[[:space:]]+(apply|plan)([[:space:]]+)?(dev|qa|prod)?$ ]]; then
+            if [[ "$COMMENT" =~ ^/terraform[[:space:]]+(apply|plan)([[:space:]]+)?(dev|qa|prod)?([[:space:]]+)?(all|1-networking|2-eks-cluster|3-iam|4-eks-addons)?$ ]]; then
               ACTION="${BASH_REMATCH[1]}"
               ENV="${BASH_REMATCH[3]}"
+              STAGE="${BASH_REMATCH[5]}"
 
               # Default to dev if no environment specified
               if [[ -z "$ENV" ]]; then
                 ENV="dev"
               fi
 
+              # Default to all if no stage specified
+              if [[ -z "$STAGE" ]]; then
+                STAGE="all"
+              fi
+
               echo "action=$ACTION" >> $GITHUB_OUTPUT
               echo "environment=$ENV" >> $GITHUB_OUTPUT
-              echo "stage=all" >> $GITHUB_OUTPUT
-              echo "Parsed - Action: $ACTION, Environment: $ENV"
+              echo "stage=$STAGE" >> $GITHUB_OUTPUT
+              echo "Parsed - Action: $ACTION, Environment: $ENV, Stage: $STAGE"
             else
-              echo "Invalid command format. Use: /terraform <apply|plan> [dev|qa|prod]"
+              echo "Invalid command format."
+              echo "Usage: /terraform <apply|plan> [dev|qa|prod] [stage]"
+              echo "Examples:"
+              echo "  /terraform plan dev"
+              echo "  /terraform apply dev all"
+              echo "  /terraform plan dev 1-networking"
+              echo "  /terraform apply qa 3-iam"
               exit 1
             fi
           else

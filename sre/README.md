@@ -125,8 +125,14 @@ Select Stage: all (runs all modules together)
 
 **PR-Driven Deployment:**
 1. Create a PR with infrastructure changes
-2. Comment `/terraform plan dev` to preview changes
-3. Comment `/terraform apply dev` to deploy (or merge PR)
+2. Automatic plan runs for all stages
+3. Use PR comments to control deployment:
+   ```bash
+   /terraform plan dev                # Plan all stages
+   /terraform plan dev 1-networking   # Plan specific stage
+   /terraform apply dev               # Apply all stages
+   /terraform apply dev 3-iam         # Apply specific stage
+   ```
 
 📖 **For detailed staged deployment guide**, see [STAGED-DEPLOYMENT.md](./STAGED-DEPLOYMENT.md)
 

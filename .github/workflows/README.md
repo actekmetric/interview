@@ -18,8 +18,8 @@ The workflows are organized into two main categories:
 
 **Trigger Methods**:
 - Manual dispatch via Actions tab
-- PR comments: `/terraform plan <env>` or `/terraform apply <env>`
-- Pull requests (plan only)
+- PR comments: `/terraform <action> [env] [stage]`
+- Pull requests (plan only, all stages)
 
 **Environments**: dev, qa, prod
 
@@ -44,9 +44,15 @@ The workflows are organized into two main categories:
 # Via GitHub UI: Actions → Terraform GitOps
 # Select: Environment (dev/qa/prod), Action (plan/apply), Stage (all/1-4)
 
-# Via PR comments:
-/terraform plan dev        # Plan all stages in dev
-/terraform apply dev       # Apply all stages in dev
+# Via PR comments (NEW: now supports stage specification):
+/terraform plan dev                # Plan all stages in dev (default)
+/terraform plan dev 1-networking   # Plan only networking stage
+/terraform apply dev 3-iam         # Apply only IAM stage
+/terraform apply qa all            # Apply all stages in qa (explicit)
+
+# PR comment defaults:
+# - No environment: defaults to dev
+# - No stage: defaults to all
 ```
 
 **Typical Deployment Flow**:
@@ -622,11 +628,12 @@ When modifying workflows:
 
 ## Changelog
 
-### 2025-12-11 - Documentation and Staged Deployment
+### 2025-12-11 - Documentation and PR Comment Enhancement
 - Created comprehensive workflows documentation
 - Updated actions README with all 6 custom actions
 - Removed redundant USAGE_GUIDE.md
 - Documented staged deployment approach for Terraform GitOps
+- **Enhanced PR comments to support stage specification** (`/terraform plan dev 1-networking`)
 - Added troubleshooting guide and quick reference
 
 ### 2025-12-10 - Staged Deployment Implementation

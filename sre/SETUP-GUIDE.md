@@ -457,10 +457,22 @@ git checkout -b feature/add-monitoring
 git commit -m "Add CloudWatch monitoring"
 git push origin feature/add-monitoring
 
-# Create PR → Terraform plan runs automatically
+# Create PR → Terraform plan runs automatically (all stages in dev)
 # Review plan in PR comments
-# Comment: "/terraform apply dev" to deploy
-# Or merge PR to deploy
+
+# Option 1: Apply all stages
+/terraform apply dev
+
+# Option 2: Apply specific stage only (if change is isolated)
+/terraform apply dev 3-iam          # If you only changed IAM
+
+# Option 3: Plan specific stage first
+/terraform plan dev 2-eks-cluster   # Preview only EKS changes
+/terraform apply dev 2-eks-cluster  # Then apply
+
+# PR Comment Syntax:
+# /terraform <action> [environment] [stage]
+# - Defaults: environment=dev, stage=all
 ```
 
 ### Cost Optimization Workflows
