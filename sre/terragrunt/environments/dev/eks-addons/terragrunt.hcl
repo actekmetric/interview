@@ -16,6 +16,7 @@ dependency "iam" {
     ebs_csi_driver_role_arn = "arn:aws:iam::123456789012:role/mock-ebs-csi-driver"
   }
   mock_outputs_allowed_terraform_commands = ["validate", "init", "plan"]
+  mock_outputs_merge_strategy_with_state = "shallow"
 }
 
 locals {
