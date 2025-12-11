@@ -16,7 +16,7 @@ dependency "eks_cluster" {
     cluster_name = "tekmetric-dev"
   }
   mock_outputs_allowed_terraform_commands = ["validate", "init"]
-  # Skip during plan - cluster must exist first
+  skip_outputs = true  # Skip during plan - cluster must be applied first
 }
 
 # Dependency on IAM module for IRSA roles
