@@ -77,10 +77,23 @@ jobs:
     needs: parse-command
 
     steps:
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data.head.sha;
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -117,10 +130,23 @@ jobs:
       name: dev-plan
 
     steps:
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data.head.sha;
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -249,10 +275,23 @@ jobs:
               content: 'rocket'
             });
 
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data.head.sha;
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -334,10 +373,23 @@ jobs:
       name: qa-plan
 
     steps:
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data.head.sha;
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -452,10 +504,23 @@ jobs:
               content: 'rocket'
             });
 
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data.head.sha;
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -535,10 +600,23 @@ jobs:
       name: prod-plan
 
     steps:
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data.head.sha;
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -655,10 +733,23 @@ jobs:
               content: 'rocket'
             });
 
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data.head.sha;
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
