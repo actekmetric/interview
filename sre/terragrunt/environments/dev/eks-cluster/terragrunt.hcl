@@ -13,11 +13,12 @@ dependency "networking" {
   config_path = "../networking"
 
   mock_outputs = {
-    vpc_id              = "vpc-mock"
-    private_subnet_ids  = ["subnet-mock-1", "subnet-mock-2", "subnet-mock-3"]
-    public_subnet_ids   = ["subnet-mock-4", "subnet-mock-5", "subnet-mock-6"]
+    vpc_id             = "vpc-mock"
+    private_subnet_ids = ["subnet-mock-1", "subnet-mock-2", "subnet-mock-3"]
+    public_subnet_ids  = ["subnet-mock-4", "subnet-mock-5", "subnet-mock-6"]
   }
-  mock_outputs_allowed_terraform_commands = ["validate", "init"]
+  mock_outputs_allowed_terraform_commands = ["validate", "init", "plan"]
+  mock_outputs_merge_strategy_with_state  = "shallow"
 }
 
 locals {
