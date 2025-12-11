@@ -31,7 +31,7 @@ inputs = {
   # GitHub OIDC configuration
   github_org         = "actekmetric"
   github_repo        = "interview"
-  enable_github_oidc = true
+  enable_github_oidc = false
 
   # IRSA roles (enable after EKS cluster is created)
   cluster_oidc_issuer_url = dependency.eks_cluster.outputs.cluster_oidc_issuer_url
