@@ -12,27 +12,10 @@ locals {
   oidc_provider = var.cluster_oidc_issuer_url != "" ? replace(var.cluster_oidc_issuer_url, "https://", "") : ""
 }
 
-# GitHub OIDC Provider
-data "tls_certificate" "github" {
+# Reference existing GitHub OIDC Provider (created by bootstrap module)
+data "aws_iam_openid_connect_provider" "github" {
   count = var.enable_github_oidc ? 1 : 0
   url   = "https://token.actions.githubusercontent.com"
-}
-
-resource "aws_iam_openid_connect_provider" "github" {
-  count = var.enable_github_oidc ? 1 : 0
-
-  url = "https://token.actions.githubusercontent.com"
-
-  client_id_list = ["sts.amazonaws.com"]
-
-  thumbprint_list = [data.tls_certificate.github[0].certificates[0].sha1_fingerprint]
-
-  tags = merge(
-    local.common_tags,
-    {
-      Name = "github-actions-oidc"
-    }
-  )
 }
 
 # GitHub Actions Role for CI/CD
@@ -184,11 +167,34 @@ resource "aws_iam_role" "aws_load_balancer_controller" {
   )
 }
 
-resource "aws_iam_role_policy_attachment" "aws_load_balancer_controller" {
+# Inline policy for AWS Load Balancer Controller
+resource "aws_iam_role_policy" "aws_load_balancer_controller" {
   count = var.enable_irsa_roles && var.cluster_oidc_issuer_url != "" ? 1 : 0
 
-  role       = aws_iam_role.aws_load_balancer_controller[0].name
-  policy_arn = "arn:aws:iam::${var.account_id}:policy/AWSLoadBalancerControllerIAMPolicy"
+  name = "AWSLoadBalancerControllerPolicy"
+  role = aws_iam_role.aws_load_balancer_controller[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeVpcs",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeInstances",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeTags",
+          "ec2:CreateTags",
+          "ec2:DeleteTags",
+          "elasticloadbalancing:*",
+          "iam:CreateServiceLinkedRole"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 # IRSA: EBS CSI Driver

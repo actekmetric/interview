@@ -71,6 +71,12 @@ variable "enable_irsa" {
   default     = true
 }
 
+variable "ebs_csi_driver_role_arn" {
+  description = "IAM role ARN for EBS CSI driver (IRSA)"
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "Additional tags for resources"
   type        = map(string)

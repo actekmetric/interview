@@ -20,6 +20,16 @@ dependency "networking" {
   mock_outputs_allowed_terraform_commands = ["validate", "init"]
 }
 
+# Dependency on IAM module for IRSA roles
+dependency "iam" {
+  config_path = "../iam"
+
+  mock_outputs = {
+    ebs_csi_driver_role_arn = "arn:aws:iam::123456789012:role/mock-ebs-csi-driver"
+  }
+  mock_outputs_allowed_terraform_commands = ["validate", "init", "plan"]
+}
+
 locals {
   environment_vars = read_terragrunt_config(find_in_parent_folders("account.hcl"))
   environment      = local.environment_vars.locals.environment
@@ -40,6 +50,9 @@ inputs = {
   # Endpoint configuration
   cluster_endpoint_public_access  = true
   cluster_endpoint_private_access = true
+
+  # IRSA roles from IAM module
+  ebs_csi_driver_role_arn = dependency.iam.outputs.ebs_csi_driver_role_arn
 
   # Node group configuration for dev (smaller, cost-optimized)
   node_groups = {

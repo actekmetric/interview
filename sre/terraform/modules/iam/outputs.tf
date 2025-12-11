@@ -1,6 +1,6 @@
 output "github_oidc_provider_arn" {
   description = "ARN of GitHub OIDC provider"
-  value       = var.enable_github_oidc ? aws_iam_openid_connect_provider.github[0].arn : null
+  value       = var.enable_github_oidc ? data.aws_iam_openid_connect_provider.github[0].arn : null
 }
 
 output "github_actions_role_arn" {

@@ -263,6 +263,7 @@ resource "aws_eks_addon" "ebs_csi_driver" {
   addon_version               = data.aws_eks_addon_version.ebs_csi_driver.version
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "PRESERVE"
+  service_account_role_arn    = var.ebs_csi_driver_role_arn != "" ? var.ebs_csi_driver_role_arn : null
 
   timeouts {
     create = "30m"
