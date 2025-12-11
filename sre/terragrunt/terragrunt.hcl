@@ -78,18 +78,6 @@ provider "aws" {
 EOF
 }
 
-# Configure retry settings for flaky operations
-retryable_errors = [
-  "(?s).*Error.*creating.*already exists.*",
-  "(?s).*Error.*deleting.*does not exist.*",
-  "(?s).*RequestError.*send request failed.*",
-  "(?s).*rate exceeded.*",
-  "(?s).*TooManyRequestsException.*",
-]
-
-retry_max_attempts       = 3
-retry_sleep_interval_sec = 5
-
 # Configure Terragrunt to use common variables
 inputs = merge(
   local.common_tags,
