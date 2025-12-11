@@ -65,6 +65,11 @@ resource "aws_eks_cluster" "main" {
     endpoint_public_access  = var.cluster_endpoint_public_access
   }
 
+  # Enable API authentication mode to support Access Entries
+  access_config {
+    authentication_mode = "API_AND_CONFIG_MAP"
+  }
+
   enabled_cluster_log_types = var.cluster_enabled_log_types
 
   depends_on = [
