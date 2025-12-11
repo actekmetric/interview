@@ -30,7 +30,7 @@ inputs = {
   cluster_name = "tekmetric-${local.environment}"
 
   # Cluster version
-  cluster_version = "1.28"
+  cluster_version = "1.34"
 
   # Network configuration from networking module
   vpc_id             = dependency.networking.outputs.vpc_id
