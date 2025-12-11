@@ -4,6 +4,9 @@ locals {
   environment = "dev"
   account_id  = "096610237522"  # TODO: Replace with actual dev AWS account ID
 
+  # Kubernetes version
+  k8s_version = "1.34"
+
   # Environment-specific settings
   enable_deletion_protection     = false
   enable_termination_protection  = false

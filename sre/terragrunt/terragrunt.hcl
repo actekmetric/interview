@@ -9,6 +9,7 @@ locals {
   environment = local.environment_vars.locals.environment
   account_id  = local.environment_vars.locals.account_id
   region      = local.region_vars.locals.region
+  k8s_version = local.environment_vars.locals.k8s_version
 
   # Global tags applied to all resources
   common_tags = {
@@ -85,5 +86,6 @@ inputs = merge(
     environment = local.environment
     account_id  = local.account_id
     region      = local.region
+    k8s_version = local.k8s_version
   }
 )

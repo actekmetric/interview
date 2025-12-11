@@ -25,7 +25,7 @@ locals {
 
 inputs = {
   cluster_name    = "tekmetric-${local.environment}"
-  cluster_version = "1.34"
+  cluster_version = local.k8s_version
 
   # IRSA roles from IAM module
   ebs_csi_driver_role_arn = dependency.iam.outputs.ebs_csi_driver_role_arn

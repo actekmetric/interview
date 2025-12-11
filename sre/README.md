@@ -15,6 +15,7 @@ Complete GitOps infrastructure for multi-account AWS environments (dev, qa, prod
 
 - **[Complete Setup Guide](SETUP-GUIDE.md)** - Step-by-step setup from scratch (START HERE!)
 - [Staged Deployment Guide](STAGED-DEPLOYMENT.md) - Infrastructure deployment strategy
+- [Version Management](terragrunt/VERSION-MANAGEMENT-OPTIONS.md) - Kubernetes version management
 - [GitHub Workflows Documentation](../.github/workflows/README.md) - CI/CD workflows
 - [Custom Actions Documentation](../.github/actions/README.md) - Reusable GitHub Actions
 
@@ -253,6 +254,42 @@ Detailed documentation for each Terraform module:
 - [GitHub Actions Documentation](../.github/actions/README.md) - Custom composite actions
 - [GitHub Workflows Documentation](../.github/workflows/README.md) - CI/CD workflows
 - [Staged Deployment Guide](STAGED-DEPLOYMENT.md) - Infrastructure deployment strategy
+
+## 📌 Version Management
+
+### Kubernetes Version
+
+K8s version is managed **per-environment** in `account.hcl` files:
+
+```hcl
+# environments/dev/account.hcl
+locals {
+  k8s_version = "1.34"  # Change here to upgrade dev
+}
+```
+
+**To upgrade Kubernetes:**
+1. Edit the environment's `account.hcl` file
+2. Change `k8s_version` to desired version (e.g., "1.35")
+3. Apply changes using staged deployment:
+   ```bash
+   # Plan to see upgrade path
+   /terraform plan dev 2-eks-cluster
+   /terraform plan dev 4-eks-addons
+
+   # Apply EKS cluster upgrade
+   /terraform apply dev 2-eks-cluster
+
+   # Apply addons upgrade (must match cluster version)
+   /terraform apply dev 4-eks-addons
+   ```
+
+**Progressive Rollout:**
+- Week 1: Upgrade dev to test new version
+- Week 2: Upgrade qa after validation
+- Week 3: Upgrade prod after thorough testing
+
+📖 See [Version Management Guide](terragrunt/VERSION-MANAGEMENT-OPTIONS.md) for details
 
 ## 🔧 Common Operations
 

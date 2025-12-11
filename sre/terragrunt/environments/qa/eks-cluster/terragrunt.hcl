@@ -23,8 +23,8 @@ inputs = {
   environment  = local.environment
   cluster_name = "tekmetric-${local.environment}"
 
-  # Cluster version
-  cluster_version = "1.34"
+  # Cluster version (from account.hcl)
+  cluster_version = local.k8s_version
 
   # Network configuration from networking module
   vpc_id             = dependency.networking.outputs.vpc_id
