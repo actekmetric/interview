@@ -75,7 +75,7 @@ output "eks_admin_group_name" {
   value       = var.create_eks_admin_group ? aws_iam_group.eks_admins[0].name : null
 }
 
-output "eks_admin_group_arn" {
-  description = "ARN of the IAM group for EKS cluster admins"
-  value       = var.create_eks_admin_group ? aws_iam_group.eks_admins[0].arn : null
+output "eks_admin_role_arn" {
+  description = "ARN of the IAM role for EKS cluster admins (users in the group assume this role)"
+  value       = var.create_eks_admin_group ? aws_iam_role.eks_admins[0].arn : null
 }

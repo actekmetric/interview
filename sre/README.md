@@ -216,12 +216,12 @@ Detailed documentation for each module:
 
 ### Managing EKS Access
 
-The EKS clusters use IAM groups for access management. Any user added to the admin group automatically gets full cluster access.
+The EKS clusters use IAM groups and roles for access management. Users added to the admin group can assume a role to get full cluster access.
 
 #### Add User to EKS Admin Group
 
 ```bash
-# Add a user to the EKS admin group (grants full cluster access)
+# Add a user to the EKS admin group
 aws iam add-user-to-group \
   --user-name your-username \
   --group-name eks-dev-admins
@@ -233,12 +233,14 @@ aws iam add-user-to-group \
 
 #### Get EKS Credentials
 
-Once you're in the admin group, configure kubectl:
+Once you're in the admin group, configure kubectl with role assumption:
 
 ```bash
+# Update kubeconfig (automatically assumes the admin role)
 aws eks update-kubeconfig \
   --name tekmetric-dev \
-  --region us-east-1
+  --region us-east-1 \
+  --role-arn arn:aws:iam::YOUR_ACCOUNT_ID:role/tekmetric-dev-admins-role
 
 # Verify access
 kubectl get nodes
@@ -252,6 +254,8 @@ aws iam remove-user-from-group \
   --user-name your-username \
   --group-name eks-dev-admins
 ```
+
+**How it works**: IAM Group → Can assume IAM Role → Role has EKS cluster admin access
 
 See [EKS Module Documentation](terraform/modules/eks/README.md) for more details.
 

@@ -311,6 +311,35 @@ data "aws_eks_addon_version" "ebs_csi_driver" {
   most_recent        = true
 }
 
+# IAM Role for EKS cluster admins (users in the group can assume this role)
+resource "aws_iam_role" "eks_admins" {
+  count = var.create_eks_admin_group ? 1 : 0
+  name  = "${var.cluster_name}-admins-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+      }
+      Action = "sts:AssumeRole"
+      Condition = {
+        StringEquals = {
+          "aws:PrincipalType" = "User"
+        }
+      }
+    }]
+  })
+
+  tags = merge(
+    local.common_tags,
+    {
+      Name = "${var.cluster_name}-admins-role"
+    }
+  )
+}
+
 # IAM Group for EKS cluster admins
 resource "aws_iam_group" "eks_admins" {
   count = var.create_eks_admin_group ? 1 : 0
@@ -318,41 +347,52 @@ resource "aws_iam_group" "eks_admins" {
   path  = "/"
 }
 
-# Data source to get IAM group (whether created by us or existing)
-data "aws_iam_group" "eks_admins" {
-  count      = var.create_eks_admin_group ? 1 : 0
-  group_name = var.eks_admin_group_name
+# Policy to allow group members to assume the EKS admin role
+resource "aws_iam_group_policy" "assume_eks_admin_role" {
+  count = var.create_eks_admin_group ? 1 : 0
+  name  = "AssumeEKSAdminRole"
+  group = aws_iam_group.eks_admins[0].name
 
-  depends_on = [aws_iam_group.eks_admins]
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = "sts:AssumeRole"
+      Resource = aws_iam_role.eks_admins[0].arn
+    }]
+  })
 }
 
-# EKS Access Entry for the IAM group
-resource "aws_eks_access_entry" "group_admin" {
+# EKS Access Entry for the IAM role
+resource "aws_eks_access_entry" "role_admin" {
   count = var.create_eks_admin_group ? 1 : 0
 
   cluster_name  = aws_eks_cluster.main.name
-  principal_arn = data.aws_iam_group.eks_admins[0].arn
+  principal_arn = aws_iam_role.eks_admins[0].arn
   type          = "STANDARD"
 
   tags = merge(
     local.common_tags,
     {
-      Name = "eks-admin-group"
+      Name = "eks-admin-role"
     }
   )
 }
 
-# Associate cluster admin policy with the group
-resource "aws_eks_access_policy_association" "group_admin" {
+# Associate cluster admin policy with the role
+resource "aws_eks_access_policy_association" "role_admin" {
   count = var.create_eks_admin_group ? 1 : 0
 
   cluster_name  = aws_eks_cluster.main.name
-  principal_arn = data.aws_iam_group.eks_admins[0].arn
+  principal_arn = aws_iam_role.eks_admins[0].arn
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
 
   access_scope {
     type = "cluster"
   }
 
-  depends_on = [aws_eks_access_entry.group_admin]
+  depends_on = [aws_eks_access_entry.role_admin]
 }
+
+# Data source for current account
+data "aws_caller_identity" "current" {}
