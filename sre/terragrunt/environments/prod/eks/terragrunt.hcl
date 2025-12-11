@@ -17,7 +17,7 @@ dependency "networking" {
     private_subnet_ids  = ["subnet-mock-1", "subnet-mock-2", "subnet-mock-3"]
     public_subnet_ids   = ["subnet-mock-4", "subnet-mock-5", "subnet-mock-6"]
   }
-  mock_outputs_allowed_terraform_commands = ["validate", "plan", "init"]
+  mock_outputs_allowed_terraform_commands = ["validate", "init"]
 }
 
 locals {
