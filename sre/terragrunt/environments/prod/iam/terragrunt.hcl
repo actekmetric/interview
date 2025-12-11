@@ -15,8 +15,9 @@ dependency "eks_cluster" {
   mock_outputs = {
     cluster_oidc_issuer_url = "https://oidc.eks.us-east-1.amazonaws.com/id/MOCK"
   }
-  mock_outputs_allowed_terraform_commands = ["validate", "init", "plan"]
-  skip_outputs = true  # Skip during plan - cluster must be applied first
+  mock_outputs_allowed_terraform_commands = ["validate", "init"]
+  # During plan before cluster exists, use mocks
+  # During apply after cluster exists, read real outputs
 }
 
 locals {
@@ -34,7 +35,7 @@ inputs = {
   github_repo        = "interview"
   enable_github_oidc = true
 
-  # IRSA roles (enable after EKS is created)
+  # IRSA roles (pass OIDC URL from cluster)
   cluster_oidc_issuer_url = dependency.eks_cluster.outputs.cluster_oidc_issuer_url
   enable_irsa_roles       = true
 }
