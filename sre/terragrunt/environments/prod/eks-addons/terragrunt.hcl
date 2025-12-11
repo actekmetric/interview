@@ -21,6 +21,7 @@ dependency "iam" {
 locals {
   environment_vars = read_terragrunt_config(find_in_parent_folders("account.hcl"))
   environment      = local.environment_vars.locals.environment
+  k8s_version      = local.environment_vars.locals.k8s_version
 }
 
 inputs = {
