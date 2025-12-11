@@ -348,6 +348,7 @@ jobs:
           retention-days: 30
 
       - name: Comment Apply Result on PR
+        if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
         uses: actions/github-script@v7
         with:
           script: |
@@ -576,6 +577,7 @@ jobs:
           retention-days: 30
 
       - name: Comment Apply Result on PR
+        if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
         uses: actions/github-script@v7
         with:
           script: |
@@ -806,6 +808,7 @@ jobs:
           retention-days: 30
 
       - name: Comment Apply Result on PR
+        if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
         uses: actions/github-script@v7
         with:
           script: |
