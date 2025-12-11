@@ -356,8 +356,8 @@ resource "aws_iam_group_policy" "assume_eks_admin_role" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
-      Action = "sts:AssumeRole"
+      Effect   = "Allow"
+      Action   = "sts:AssumeRole"
       Resource = aws_iam_role.eks_admins[0].arn
     }]
   })
