@@ -214,14 +214,46 @@ Detailed documentation for each module:
 
 ## 🔧 Common Operations
 
-### Get EKS Credentials
+### Managing EKS Access
+
+The EKS clusters use IAM groups for access management. Any user added to the admin group automatically gets full cluster access.
+
+#### Add User to EKS Admin Group
+
+```bash
+# Add a user to the EKS admin group (grants full cluster access)
+aws iam add-user-to-group \
+  --user-name your-username \
+  --group-name eks-dev-admins
+
+# For other environments:
+# --group-name eks-qa-admins
+# --group-name eks-prod-admins
+```
+
+#### Get EKS Credentials
+
+Once you're in the admin group, configure kubectl:
 
 ```bash
 aws eks update-kubeconfig \
   --name tekmetric-dev \
-  --region us-east-1 \
-  --role-arn arn:aws:iam::123456789012:role/GitHubActionsRole-dev
+  --region us-east-1
+
+# Verify access
+kubectl get nodes
+kubectl get pods -A
 ```
+
+#### Remove User from EKS Admin Group
+
+```bash
+aws iam remove-user-from-group \
+  --user-name your-username \
+  --group-name eks-dev-admins
+```
+
+See [EKS Module Documentation](terraform/modules/eks/README.md) for more details.
 
 ### Scale Workloads Manually
 

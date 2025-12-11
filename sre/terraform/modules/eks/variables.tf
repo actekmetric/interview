@@ -83,6 +83,18 @@ variable "enable_addons" {
   default     = true
 }
 
+variable "create_eks_admin_group" {
+  description = "Create an IAM group for EKS cluster admins"
+  type        = bool
+  default     = false
+}
+
+variable "eks_admin_group_name" {
+  description = "Name of the IAM group for EKS cluster admins"
+  type        = string
+  default     = "eks-cluster-admins"
+}
+
 variable "tags" {
   description = "Additional tags for resources"
   type        = map(string)

@@ -23,6 +23,7 @@ dependency "networking" {
 locals {
   environment_vars = read_terragrunt_config(find_in_parent_folders("account.hcl"))
   environment      = local.environment_vars.locals.environment
+  account_id       = local.environment_vars.locals.account_id
 }
 
 inputs = {
@@ -61,6 +62,11 @@ inputs = {
 
   # OIDC provider for IRSA
   enable_irsa = false
+
+  # Create IAM group for EKS admins
+  # Users added to this group will automatically get full cluster access
+  create_eks_admin_group = true
+  eks_admin_group_name   = "eks-${local.environment}-admins"
 
   # Logging
   cluster_enabled_log_types = ["api", "audit", "authenticator"]

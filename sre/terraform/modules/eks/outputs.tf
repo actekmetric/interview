@@ -69,3 +69,13 @@ output "cloudwatch_log_group_name" {
   description = "CloudWatch log group name for cluster logs"
   value       = aws_cloudwatch_log_group.cluster.name
 }
+
+output "eks_admin_group_name" {
+  description = "Name of the IAM group for EKS cluster admins"
+  value       = var.create_eks_admin_group ? aws_iam_group.eks_admins[0].name : null
+}
+
+output "eks_admin_group_arn" {
+  description = "ARN of the IAM group for EKS cluster admins"
+  value       = var.create_eks_admin_group ? aws_iam_group.eks_admins[0].arn : null
+}

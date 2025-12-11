@@ -310,3 +310,49 @@ data "aws_eks_addon_version" "ebs_csi_driver" {
   kubernetes_version = aws_eks_cluster.main.version
   most_recent        = true
 }
+
+# IAM Group for EKS cluster admins
+resource "aws_iam_group" "eks_admins" {
+  count = var.create_eks_admin_group ? 1 : 0
+  name  = var.eks_admin_group_name
+  path  = "/"
+}
+
+# Data source to get IAM group (whether created by us or existing)
+data "aws_iam_group" "eks_admins" {
+  count      = var.create_eks_admin_group ? 1 : 0
+  group_name = var.eks_admin_group_name
+
+  depends_on = [aws_iam_group.eks_admins]
+}
+
+# EKS Access Entry for the IAM group
+resource "aws_eks_access_entry" "group_admin" {
+  count = var.create_eks_admin_group ? 1 : 0
+
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = data.aws_iam_group.eks_admins[0].arn
+  type          = "STANDARD"
+
+  tags = merge(
+    local.common_tags,
+    {
+      Name = "eks-admin-group"
+    }
+  )
+}
+
+# Associate cluster admin policy with the group
+resource "aws_eks_access_policy_association" "group_admin" {
+  count = var.create_eks_admin_group ? 1 : 0
+
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = data.aws_iam_group.eks_admins[0].arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.group_admin]
+}
