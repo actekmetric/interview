@@ -1,6 +1,7 @@
 variable "environment" {
   description = "Environment name (dev, qa, prod)"
   type        = string
+  # Accepted values: dev, qa, prod
 }
 
 variable "vpc_cidr" {

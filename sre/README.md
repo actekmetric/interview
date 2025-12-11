@@ -2,6 +2,8 @@
 
 Complete GitOps infrastructure for multi-account AWS environments (dev, qa, prod) with EKS clusters and automated lifecycle management.
 
+> Test GitOps workflow with PR comments
+
 ## 🏗️ Architecture
 
 - **Infrastructure as Code**: Terragrunt + Terraform

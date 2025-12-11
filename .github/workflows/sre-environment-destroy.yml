@@ -68,13 +68,24 @@ jobs:
           role-arn: ${{ inputs.environment == 'dev' && secrets.AWS_DEV_ROLE_ARN || inputs.environment == 'qa' && secrets.AWS_QA_ROLE_ARN || secrets.AWS_PROD_ROLE_ARN }}
           account-id: ${{ inputs.environment == 'dev' && secrets.AWS_DEV_ACCOUNT_ID || inputs.environment == 'qa' && secrets.AWS_QA_ACCOUNT_ID || secrets.AWS_PROD_ACCOUNT_ID }}
       - name: Backup Terraform state
+        continue-on-error: true
         run: |
           echo "💾 Backing up Terraform state..."
-          aws s3 sync \
-            s3://tekmetric-terraform-state-$(aws sts get-caller-identity --query Account --output text) \
-            s3://tekmetric-terraform-state-backup-$(date +%Y%m%d-%H%M%S)/ \
-            --region us-east-1
-          echo "✅ State backed up"
+          BUCKET_NAME="tekmetric-terraform-state-$(aws sts get-caller-identity --query Account --output text)"
+          BACKUP_PATH="backups/$(date +%Y%m%d-%H%M%S)"
+
+          # Check if bucket exists
+          if aws s3 ls "s3://${BUCKET_NAME}" 2>/dev/null; then
+            # Copy all state files to backup path within same bucket
+            aws s3 sync \
+              "s3://${BUCKET_NAME}" \
+              "s3://${BUCKET_NAME}/${BACKUP_PATH}/" \
+              --exclude "backups/*" \
+              --region us-east-1
+            echo "✅ State backed up to s3://${BUCKET_NAME}/${BACKUP_PATH}/"
+          else
+            echo "⚠️ State bucket does not exist, skipping backup"
+          fi
 
       - name: Destroy infrastructure
         run: |

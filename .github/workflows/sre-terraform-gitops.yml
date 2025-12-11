@@ -77,10 +77,23 @@ jobs:
     needs: parse-command
 
     steps:
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data.head.sha;
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -117,10 +130,23 @@ jobs:
       name: dev-plan
 
     steps:
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data.head.sha;
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -135,14 +161,15 @@ jobs:
       - name: Terragrunt Plan
         id: plan
         run: |
+          set -o pipefail
           cd sre/terragrunt/environments/dev
           echo "Running plan for dev environment..."
 
           # Capture plan output
           terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
 
-          # Save for comment
-          cat plan.txt > /tmp/dev-plan.txt
+          # Strip ANSI color codes and save for comment
+          sed 's/\x1b\[[0-9;]*m//g' plan.txt > /tmp/dev-plan.txt
 
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
@@ -248,10 +275,23 @@ jobs:
               content: 'rocket'
             });
 
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data.head.sha;
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -266,6 +306,7 @@ jobs:
       - name: Terragrunt Apply
         id: apply
         run: |
+          set -o pipefail
           cd sre/terragrunt/environments/dev
           echo "🚀 Applying infrastructure to dev..."
           terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee apply.txt
@@ -332,10 +373,23 @@ jobs:
       name: qa-plan
 
     steps:
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data.head.sha;
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -350,10 +404,11 @@ jobs:
       - name: Terragrunt Plan
         id: plan
         run: |
+          set -o pipefail
           cd sre/terragrunt/environments/qa
           echo "Running plan for qa environment..."
           terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
-          cat plan.txt > /tmp/qa-plan.txt
+          sed 's/\x1b\[[0-9;]*m//g' plan.txt > /tmp/qa-plan.txt
 
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
@@ -449,10 +504,23 @@ jobs:
               content: 'rocket'
             });
 
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data.head.sha;
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -466,6 +534,7 @@ jobs:
 
       - name: Terragrunt Apply
         run: |
+          set -o pipefail
           cd sre/terragrunt/environments/qa
           echo "🚀 Applying infrastructure to qa..."
           terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee apply.txt
@@ -531,10 +600,23 @@ jobs:
       name: prod-plan
 
     steps:
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data.head.sha;
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -549,10 +631,11 @@ jobs:
       - name: Terragrunt Plan
         id: plan
         run: |
+          set -o pipefail
           cd sre/terragrunt/environments/prod
           echo "Running plan for prod environment..."
           terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
-          cat plan.txt > /tmp/prod-plan.txt
+          sed 's/\x1b\[[0-9;]*m//g' plan.txt > /tmp/prod-plan.txt
 
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
@@ -650,10 +733,23 @@ jobs:
               content: 'rocket'
             });
 
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data.head.sha;
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -667,6 +763,7 @@ jobs:
 
       - name: Terragrunt Apply
         run: |
+          set -o pipefail
           cd sre/terragrunt/environments/prod
           echo "🚀 Applying infrastructure to prod..."
           terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee apply.txt
