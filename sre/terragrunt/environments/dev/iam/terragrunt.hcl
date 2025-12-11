@@ -35,5 +35,5 @@ inputs = {
 
   # IRSA roles (enable after EKS cluster is created)
   cluster_oidc_issuer_url = dependency.eks_cluster.outputs.cluster_oidc_issuer_url
-  enable_irsa_roles       = true
+  enable_irsa_roles       = false
 }
