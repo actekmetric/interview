@@ -40,4 +40,5 @@ inputs = {
 
   # IRSA roles from IAM module
   ebs_csi_driver_role_arn = dependency.iam.outputs.ebs_csi_driver_role_arn
+  cluster_oidc_issuer_url = dependency.eks_cluster.outputs.cluster_oidc_issuer_url
 }

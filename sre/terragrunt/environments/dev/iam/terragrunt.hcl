@@ -16,6 +16,7 @@ dependency "eks_cluster" {
     cluster_oidc_issuer_url = "https://oidc.eks.us-east-1.amazonaws.com/id/MOCK"
   }
   mock_outputs_allowed_terraform_commands = ["validate", "init", "plan"]
+  skip_outputs = true  # Skip during plan - cluster must be applied first
 }
 
 locals {

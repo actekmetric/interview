@@ -60,7 +60,7 @@ inputs = {
   }
 
   # OIDC provider for IRSA
-  enable_irsa = true
+  enable_irsa = false
 
   # Logging
   cluster_enabled_log_types = ["api", "audit", "authenticator"]
