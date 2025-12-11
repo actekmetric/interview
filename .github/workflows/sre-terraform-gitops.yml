@@ -15,8 +15,28 @@ on:
   issue_comment:
     types: [created]
 
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+        default: dev
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+        default: plan
+
 concurrency:
-  group: terraform-gitops-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: terraform-gitops-${{ github.event.pull_request.number || github.event.issue.number || format('manual-{0}-{1}', github.event.inputs.environment, github.run_id) }}
   cancel-in-progress: false
 
 jobs:
@@ -26,6 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'pull_request') ||
+      (github.event_name == 'workflow_dispatch') ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request &&
        startsWith(github.event.comment.body, '/terraform'))
@@ -37,7 +58,12 @@ jobs:
       - name: Parse comment or set defaults
         id: parse
         run: |
-          if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Manual workflow trigger
+            echo "action=${{ github.event.inputs.action }}" >> $GITHUB_OUTPUT
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "Manual trigger - Action: ${{ github.event.inputs.action }}, Environment: ${{ github.event.inputs.environment }}"
+          elif [[ "${{ github.event_name }}" == "issue_comment" ]]; then
             COMMENT="${{ github.event.comment.body }}"
             echo "Comment received: $COMMENT"
 
