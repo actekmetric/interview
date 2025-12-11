@@ -15,7 +15,7 @@ Complete GitOps infrastructure for multi-account AWS environments (dev, qa, prod
 
 - **[Complete Setup Guide](SETUP-GUIDE.md)** - Step-by-step setup from scratch (START HERE!)
 - [Staged Deployment Guide](STAGED-DEPLOYMENT.md) - Infrastructure deployment strategy
-- [Version Management](terragrunt/VERSION-MANAGEMENT-OPTIONS.md) - Kubernetes version management
+- [Kubernetes Version Management](terragrunt/K8S-UPGRADE) - How to upgrade K8s versions
 - [GitHub Workflows Documentation](../.github/workflows/README.md) - CI/CD workflows
 - [Custom Actions Documentation](../.github/actions/README.md) - Reusable GitHub Actions
 
