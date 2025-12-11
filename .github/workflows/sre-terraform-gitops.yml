@@ -34,6 +34,17 @@ on:
           - plan
           - apply
         default: plan
+      stage:
+        description: 'Deployment stage (use "all" to run all stages in order)'
+        required: true
+        type: choice
+        options:
+          - all
+          - 1-networking
+          - 2-eks-cluster
+          - 3-iam
+          - 4-eks-addons
+        default: all
 
 concurrency:
   group: terraform-gitops-${{ github.event.pull_request.number || github.event.issue.number || format('manual-{0}-{1}', github.event.inputs.environment, github.run_id) }}
@@ -53,6 +64,7 @@ jobs:
     outputs:
       action: ${{ steps.parse.outputs.action }}
       environment: ${{ steps.parse.outputs.environment }}
+      stage: ${{ steps.parse.outputs.stage }}
 
     steps:
       - name: Parse comment or set defaults
@@ -62,7 +74,8 @@ jobs:
             # Manual workflow trigger
             echo "action=${{ github.event.inputs.action }}" >> $GITHUB_OUTPUT
             echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
-            echo "Manual trigger - Action: ${{ github.event.inputs.action }}, Environment: ${{ github.event.inputs.environment }}"
+            echo "stage=${{ github.event.inputs.stage }}" >> $GITHUB_OUTPUT
+            echo "Manual trigger - Action: ${{ github.event.inputs.action }}, Environment: ${{ github.event.inputs.environment }}, Stage: ${{ github.event.inputs.stage }}"
           elif [[ "${{ github.event_name }}" == "issue_comment" ]]; then
             COMMENT="${{ github.event.comment.body }}"
             echo "Comment received: $COMMENT"
@@ -84,16 +97,18 @@ jobs:
 
               echo "action=$ACTION" >> $GITHUB_OUTPUT
               echo "environment=$ENV" >> $GITHUB_OUTPUT
+              echo "stage=all" >> $GITHUB_OUTPUT
               echo "Parsed - Action: $ACTION, Environment: $ENV"
             else
               echo "Invalid command format. Use: /terraform <apply|plan> [dev|qa|prod]"
               exit 1
             fi
           else
-            # Pull request - always plan, always dev (for now)
+            # Pull request - always plan, always dev, all stages
             echo "action=plan" >> $GITHUB_OUTPUT
             echo "environment=dev" >> $GITHUB_OUTPUT
-            echo "Pull request - defaulting to plan dev"
+            echo "stage=all" >> $GITHUB_OUTPUT
+            echo "Pull request - defaulting to plan dev (all stages)"
           fi
 
   # Validate Terraform
@@ -186,13 +201,24 @@ jobs:
 
       - name: Terragrunt Plan
         id: plan
+        env:
+          STAGE: ${{ needs.parse-command.outputs.stage }}
         run: |
           set -o pipefail
           cd sre/terragrunt/environments/dev
-          echo "Running plan for dev environment..."
 
-          # Capture plan output
-          terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
+          # Determine which directories to run based on stage
+          if [[ "$STAGE" == "all" ]]; then
+            echo "Running plan for all stages in dev environment..."
+            terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
+          else
+            # Extract module name from stage (e.g., "1-networking" -> "networking")
+            MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            echo "Running plan for stage: $MODULE in dev environment..."
+            cd "$MODULE"
+            terragrunt plan --terragrunt-non-interactive 2>&1 | tee ../plan.txt
+            cd ..
+          fi
 
           # Strip ANSI color codes and save for comment
           sed 's/\x1b\[[0-9;]*m//g' plan.txt > /tmp/dev-plan.txt
@@ -332,11 +358,24 @@ jobs:
 
       - name: Terragrunt Apply
         id: apply
+        env:
+          STAGE: ${{ needs.parse-command.outputs.stage }}
         run: |
           set -o pipefail
           cd sre/terragrunt/environments/dev
-          echo "🚀 Applying infrastructure to dev..."
-          terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee apply.txt
+
+          # Determine which directories to run based on stage
+          if [[ "$STAGE" == "all" ]]; then
+            echo "🚀 Applying all stages in dev environment..."
+            terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee apply.txt
+          else
+            # Extract module name from stage (e.g., "1-networking" -> "networking")
+            MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            echo "🚀 Applying stage: $MODULE in dev environment..."
+            cd "$MODULE"
+            terragrunt apply --terragrunt-non-interactive 2>&1 | tee ../apply.txt
+            cd ..
+          fi
 
           cat apply.txt > /tmp/dev-apply.txt
 
@@ -431,11 +470,24 @@ jobs:
 
       - name: Terragrunt Plan
         id: plan
+        env:
+          STAGE: ${{ needs.parse-command.outputs.stage }}
         run: |
           set -o pipefail
           cd sre/terragrunt/environments/qa
-          echo "Running plan for qa environment..."
-          terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
+
+          # Determine which directories to run based on stage
+          if [[ "$STAGE" == "all" ]]; then
+            echo "Running plan for all stages in qa environment..."
+            terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
+          else
+            MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            echo "Running plan for stage: $MODULE in qa environment..."
+            cd "$MODULE"
+            terragrunt plan --terragrunt-non-interactive 2>&1 | tee ../plan.txt
+            cd ..
+          fi
+
           sed 's/\x1b\[[0-9;]*m//g' plan.txt > /tmp/qa-plan.txt
 
       - name: Upload plan artifact
@@ -562,11 +614,24 @@ jobs:
           account-id: ${{ secrets.AWS_QA_ACCOUNT_ID }}
 
       - name: Terragrunt Apply
+        env:
+          STAGE: ${{ needs.parse-command.outputs.stage }}
         run: |
           set -o pipefail
           cd sre/terragrunt/environments/qa
-          echo "🚀 Applying infrastructure to qa..."
-          terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee apply.txt
+
+          # Determine which directories to run based on stage
+          if [[ "$STAGE" == "all" ]]; then
+            echo "🚀 Applying all stages in qa environment..."
+            terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee apply.txt
+          else
+            MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            echo "🚀 Applying stage: $MODULE in qa environment..."
+            cd "$MODULE"
+            terragrunt apply --terragrunt-non-interactive 2>&1 | tee ../apply.txt
+            cd ..
+          fi
+
           cat apply.txt > /tmp/qa-apply.txt
 
       - name: Upload apply artifact
@@ -660,11 +725,24 @@ jobs:
 
       - name: Terragrunt Plan
         id: plan
+        env:
+          STAGE: ${{ needs.parse-command.outputs.stage }}
         run: |
           set -o pipefail
           cd sre/terragrunt/environments/prod
-          echo "Running plan for prod environment..."
-          terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
+
+          # Determine which directories to run based on stage
+          if [[ "$STAGE" == "all" ]]; then
+            echo "Running plan for all stages in prod environment..."
+            terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
+          else
+            MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            echo "Running plan for stage: $MODULE in prod environment..."
+            cd "$MODULE"
+            terragrunt plan --terragrunt-non-interactive 2>&1 | tee ../plan.txt
+            cd ..
+          fi
+
           sed 's/\x1b\[[0-9;]*m//g' plan.txt > /tmp/prod-plan.txt
 
       - name: Upload plan artifact
@@ -793,11 +871,24 @@ jobs:
           account-id: ${{ secrets.AWS_PROD_ACCOUNT_ID }}
 
       - name: Terragrunt Apply
+        env:
+          STAGE: ${{ needs.parse-command.outputs.stage }}
         run: |
           set -o pipefail
           cd sre/terragrunt/environments/prod
-          echo "🚀 Applying infrastructure to prod..."
-          terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee apply.txt
+
+          # Determine which directories to run based on stage
+          if [[ "$STAGE" == "all" ]]; then
+            echo "🚀 Applying all stages in prod environment..."
+            terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee apply.txt
+          else
+            MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            echo "🚀 Applying stage: $MODULE in prod environment..."
+            cd "$MODULE"
+            terragrunt apply --terragrunt-non-interactive 2>&1 | tee ../apply.txt
+            cd ..
+          fi
+
           cat apply.txt > /tmp/prod-apply.txt
 
       - name: Upload apply artifact

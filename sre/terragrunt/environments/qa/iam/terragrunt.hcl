@@ -11,13 +11,6 @@ terraform {
 # Dependency on EKS module for IRSA
 dependency "eks_cluster" {
   config_path = "../eks-cluster"
-
-  mock_outputs = {
-    cluster_oidc_issuer_url = "https://oidc.eks.us-east-1.amazonaws.com/id/MOCK"
-  }
-  mock_outputs_allowed_terraform_commands = ["validate", "init", "plan"]
-  mock_outputs_merge_strategy_with_state = "shallow"
-  # Uses mocks during plan if no state exists, real outputs during apply
 }
 
 locals {
