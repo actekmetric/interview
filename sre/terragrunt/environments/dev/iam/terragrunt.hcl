@@ -8,9 +8,9 @@ terraform {
   source = "../../../../terraform/modules/iam"
 }
 
-# Dependency on EKS module for IRSA
-dependency "eks" {
-  config_path = "../eks"
+# Dependency on EKS cluster for IRSA
+dependency "eks_cluster" {
+  config_path = "../eks-cluster"
 
   mock_outputs = {
     cluster_oidc_issuer_url = "https://oidc.eks.us-east-1.amazonaws.com/id/MOCK"
@@ -33,7 +33,7 @@ inputs = {
   github_repo        = "interview"
   enable_github_oidc = true
 
-  # IRSA roles (enable after EKS is created)
-  cluster_oidc_issuer_url = dependency.eks.outputs.cluster_oidc_issuer_url
+  # IRSA roles (enable after EKS cluster is created)
+  cluster_oidc_issuer_url = dependency.eks_cluster.outputs.cluster_oidc_issuer_url
   enable_irsa_roles       = true
 }

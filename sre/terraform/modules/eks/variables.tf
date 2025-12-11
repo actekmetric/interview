@@ -77,6 +77,12 @@ variable "ebs_csi_driver_role_arn" {
   default     = ""
 }
 
+variable "enable_addons" {
+  description = "Enable EKS addons (VPC CNI, CoreDNS, kube-proxy, EBS CSI)"
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Additional tags for resources"
   type        = map(string)

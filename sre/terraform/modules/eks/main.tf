@@ -192,8 +192,10 @@ resource "aws_eks_node_group" "main" {
   )
 }
 
-# EKS Add-ons
+# EKS Add-ons (optional, can be managed separately)
 resource "aws_eks_addon" "vpc_cni" {
+  count = var.enable_addons ? 1 : 0
+
   cluster_name = aws_eks_cluster.main.name
   addon_name   = "vpc-cni"
 
@@ -215,6 +217,8 @@ resource "aws_eks_addon" "vpc_cni" {
 }
 
 resource "aws_eks_addon" "coredns" {
+  count = var.enable_addons ? 1 : 0
+
   cluster_name = aws_eks_cluster.main.name
   addon_name   = "coredns"
 
@@ -236,6 +240,8 @@ resource "aws_eks_addon" "coredns" {
 }
 
 resource "aws_eks_addon" "kube_proxy" {
+  count = var.enable_addons ? 1 : 0
+
   cluster_name = aws_eks_cluster.main.name
   addon_name   = "kube-proxy"
 
@@ -257,6 +263,8 @@ resource "aws_eks_addon" "kube_proxy" {
 }
 
 resource "aws_eks_addon" "ebs_csi_driver" {
+  count = var.enable_addons ? 1 : 0
+
   cluster_name = aws_eks_cluster.main.name
   addon_name   = "aws-ebs-csi-driver"
 
