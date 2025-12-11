@@ -8,6 +8,16 @@ terraform {
   source = "../../../../terraform/modules/eks-addons"
 }
 
+# Dependency on EKS cluster (must exist before addons)
+dependency "eks_cluster" {
+  config_path = "../eks-cluster"
+
+  mock_outputs = {
+    cluster_name = "tekmetric-prod"
+  }
+  mock_outputs_allowed_terraform_commands = ["validate", "init"]
+}
+
 # Dependency on IAM module for IRSA roles
 dependency "iam" {
   config_path = "../iam"
@@ -15,8 +25,8 @@ dependency "iam" {
   mock_outputs = {
     ebs_csi_driver_role_arn = "arn:aws:iam::123456789012:role/mock-ebs-csi-driver"
   }
-  mock_outputs_allowed_terraform_commands = ["validate", "init", "plan", "apply", "destroy"]
-  skip_outputs = true
+  mock_outputs_allowed_terraform_commands = ["validate", "init", "plan"]
+  mock_outputs_merge_strategy_with_state = "shallow"
 }
 
 locals {

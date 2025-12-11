@@ -8,6 +8,17 @@ terraform {
   source = "../../../../terraform/modules/eks-addons"
 }
 
+# Dependency on EKS cluster (must exist before addons)
+dependency "eks_cluster" {
+  config_path = "../eks-cluster"
+
+  mock_outputs = {
+    cluster_name = "tekmetric-dev"
+  }
+  mock_outputs_allowed_terraform_commands = ["validate", "init"]
+  # Skip during plan - cluster must exist first
+}
+
 # Dependency on IAM module for IRSA roles
 dependency "iam" {
   config_path = "../iam"
