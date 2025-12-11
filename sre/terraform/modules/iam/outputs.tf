@@ -30,7 +30,7 @@ output "aws_load_balancer_controller_role_arn" {
 
 output "ebs_csi_driver_role_arn" {
   description = "ARN of EBS CSI Driver IRSA role"
-  value       = var.enable_irsa_roles && var.cluster_oidc_issuer_url != "" ? aws_iam_role.ebs_csi_driver[0].arn : null
+  value       = var.enable_irsa_roles && var.cluster_oidc_issuer_url != "" ? aws_iam_role.ebs_csi_driver[0].arn : ""
 }
 
 output "cluster_autoscaler_role_arn" {
