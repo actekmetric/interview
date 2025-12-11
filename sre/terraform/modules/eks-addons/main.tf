@@ -2,11 +2,6 @@ locals {
   common_tags = var.tags
 }
 
-# Data source to reference existing EKS cluster
-data "aws_eks_cluster" "main" {
-  name = var.cluster_name
-}
-
 # Data sources for latest addon versions
 data "aws_eks_addon_version" "vpc_cni" {
   addon_name         = "vpc-cni"
