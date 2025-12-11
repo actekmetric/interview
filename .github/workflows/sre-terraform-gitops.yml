@@ -373,7 +373,7 @@ jobs:
             MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
             echo "🚀 Applying stage: $MODULE in dev environment..."
             cd "$MODULE"
-            terragrunt apply --terragrunt-non-interactive 2>&1 | tee ../apply.txt
+            terragrunt apply -auto-approve --terragrunt-non-interactive 2>&1 | tee ../apply.txt
             cd ..
           fi
 
@@ -628,7 +628,7 @@ jobs:
             MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
             echo "🚀 Applying stage: $MODULE in qa environment..."
             cd "$MODULE"
-            terragrunt apply --terragrunt-non-interactive 2>&1 | tee ../apply.txt
+            terragrunt apply -auto-approve --terragrunt-non-interactive 2>&1 | tee ../apply.txt
             cd ..
           fi
 
@@ -885,7 +885,7 @@ jobs:
             MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
             echo "🚀 Applying stage: $MODULE in prod environment..."
             cd "$MODULE"
-            terragrunt apply --terragrunt-non-interactive 2>&1 | tee ../apply.txt
+            terragrunt apply -auto-approve --terragrunt-non-interactive 2>&1 | tee ../apply.txt
             cd ..
           fi
 
