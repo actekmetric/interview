@@ -13,7 +13,8 @@ dependency "eks_cluster" {
   config_path = "../eks-cluster"
 
   mock_outputs = {
-    cluster_name = "tekmetric-qa"
+    cluster_name    = "tekmetric-qa"
+    cluster_version = "1.34"
   }
   mock_outputs_allowed_terraform_commands = ["validate", "init"]
   skip_outputs = true  # Skip during plan - cluster must be applied first
@@ -37,7 +38,7 @@ locals {
 
 inputs = {
   cluster_name    = "tekmetric-${local.environment}"
-  cluster_version = "1.34"
+  cluster_version = dependency.eks_cluster.outputs.cluster_version
 
   # IRSA roles from IAM module
   ebs_csi_driver_role_arn = dependency.iam.outputs.ebs_csi_driver_role_arn
