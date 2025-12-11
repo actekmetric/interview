@@ -92,8 +92,7 @@ jobs:
           cd sre/terragrunt/environments/${{ inputs.environment }}
           echo "🗑️ Destroying all infrastructure..."
           terragrunt run-all destroy \
-            --terragrunt-non-interactive \
-            --terragrunt-ignore-dependency-errors
+            --terragrunt-non-interactive
 
       - name: Verify destruction
         run: |

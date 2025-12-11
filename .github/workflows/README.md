@@ -403,7 +403,7 @@ Actions → Stop Environment → qa
 **Solution**: All mocks removed - use staged deployment instead
 
 **Issue**: Dependency errors in run-all
-**Solution**: Use `--terragrunt-ignore-dependency-errors` or switch to staged deployment
+**Solution**: Use staged deployment (recommended). For apply operations only, you can use `--terragrunt-ignore-dependency-errors` to continue past errors, but **never use this for destroy operations** as it can cause cascading failures (e.g., trying to destroy VPC while EKS is still running)
 
 ### Backend Service Issues
 
