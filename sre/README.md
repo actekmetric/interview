@@ -2,135 +2,147 @@
 
 Complete GitOps infrastructure for multi-account AWS environments (dev, qa, prod) with EKS clusters and automated lifecycle management.
 
-> Test GitOps workflow with PR comments
+## 🌟 Key Features
+
+- **AWS Multi-Account Setup** - Separate accounts for dev, qa, prod
+- **Amazon EKS** - Kubernetes 1.34 with managed node groups
+- **Infrastructure as Code** - Terraform + Terragrunt with staged deployments
+- **GitHub Actions CI/CD** - Automated workflows for infrastructure and applications
+- **Security** - GitHub OIDC authentication, IRSA for pod-level permissions
+- **Cost Optimization** - Environment start/stop workflows for dev/qa
+
+## 🔗 Quick Navigation
+
+- **[Complete Setup Guide](SETUP-GUIDE.md)** - Step-by-step setup from scratch (START HERE!)
+- [Staged Deployment Guide](STAGED-DEPLOYMENT.md) - Infrastructure deployment strategy
+- [GitHub Workflows Documentation](../.github/workflows/README.md) - CI/CD workflows
+- [Custom Actions Documentation](../.github/actions/README.md) - Reusable GitHub Actions
+
+## 🛠️ Technologies
+
+- **Infrastructure**: Terraform, Terragrunt, AWS (EKS, VPC, IAM, S3, DynamoDB)
+- **CI/CD**: GitHub Actions, GitHub OIDC
+- **Containers**: Docker, Kubernetes, Helm
+- **Security**: Trivy scanning, IRSA, encrypted state
+- **Observability**: CloudWatch, VPC Flow Logs
 
 ## 🏗️ Architecture
 
 - **Infrastructure as Code**: Terragrunt + Terraform
-- **Container Orchestration**: Amazon EKS (Kubernetes 1.28)
+- **Container Orchestration**: Amazon EKS (Kubernetes 1.34)
 - **Networking**: Custom VPC with public/private subnets across 3 AZs
 - **Authentication**: GitHub OIDC (no long-lived credentials)
 - **GitOps**: GitHub Actions workflows
+- **Deployment Strategy**: Staged deployments (4 sequential stages)
+
+### Module Architecture
+
+The infrastructure is split into 4 deployment stages to eliminate circular dependencies:
+
+1. **Networking** - Creates VPC, subnets, NAT gateways, security groups
+2. **EKS Cluster** - Creates EKS control plane and node groups (no addons)
+3. **IAM** - Creates IRSA roles for service accounts (requires EKS OIDC URL)
+4. **EKS Addons** - Installs EKS addons with IRSA roles (EBS CSI driver, CoreDNS, etc.)
+
+This separation ensures:
+- ✅ No circular dependencies between EKS and IAM modules
+- ✅ IRSA roles can be created after cluster exists
+- ✅ Addons can use IRSA roles for secure AWS API access
+- ✅ Clean deployment order: networking → cluster → iam → addons
 
 ## 📂 Directory Structure
 
 ```
 sre/
-├── terraform/          # Terraform modules
+├── terraform/              # Terraform modules
 │   ├── modules/
-│   │   ├── bootstrap/  # S3 state backend, DynamoDB locks
-│   │   ├── networking/ # VPC, subnets, NAT, security groups
-│   │   ├── eks/        # EKS cluster, node groups, add-ons
-│   │   └── iam/        # GitHub OIDC, IAM roles for IRSA
-│   └── policies/       # Reusable IAM policy documents
-├── terragrunt/         # Terragrunt configurations
-│   ├── terragrunt.hcl  # Root configuration
-│   └── environments/   # Environment-specific configs
+│   │   ├── bootstrap/      # S3 state backend, DynamoDB locks, GitHub OIDC
+│   │   ├── networking/     # VPC, subnets, NAT gateways, security groups
+│   │   ├── eks/            # EKS cluster control plane and node groups
+│   │   ├── eks-addons/     # EKS addons (VPC CNI, CoreDNS, EBS CSI driver)
+│   │   └── iam/            # GitHub OIDC, IAM roles for IRSA
+│   └── policies/           # Reusable IAM policy documents
+├── terragrunt/             # Terragrunt configurations
+│   ├── terragrunt.hcl      # Root configuration
+│   └── environments/       # Environment-specific configs (staged deployment)
 │       ├── dev/
+│       │   ├── networking/     # Stage 1: VPC and networking
+│       │   ├── eks-cluster/    # Stage 2: EKS control plane + nodes
+│       │   ├── iam/            # Stage 3: IRSA roles
+│       │   └── eks-addons/     # Stage 4: EKS addons
 │       ├── qa/
 │       └── prod/
-├── scripts/            # Helper scripts
-│   └── scale-workloads.sh  # Start/stop environments
-├── k8s/                # Kubernetes manifests
-│   ├── workload-state/ # Replica count state per environment
-│   └── base/           # Base K8s resources
-└── helm/               # Existing Helm charts
-    ├── backend/
-    └── common/
+├── scripts/                # Helper scripts
+│   └── scale-workloads.sh  # Start/stop environments for cost optimization
+├── k8s/                    # Kubernetes manifests
+│   ├── workload-state/     # Replica count state per environment
+│   └── base/               # Base K8s resources
+└── helm/                   # Helm charts
+    ├── backend/            # Backend service chart
+    └── common/             # Shared library chart (tekmetric-common-chart)
 ```
 
 ## 🚀 Quick Start
 
-### Prerequisites
+> **New to this infrastructure?** Follow the **[Complete Setup Guide](SETUP-GUIDE.md)** for step-by-step instructions from AWS account creation to first deployment.
 
-1. **AWS Accounts**: Separate accounts for dev, qa, prod
-2. **GitHub Secrets**: Configure OIDC credentials (see below)
-3. **Tools** (for local dev):
-   - Terraform >= 1.6.0
-   - Terragrunt >= 0.54.0
-   - kubectl >= 1.28
-   - AWS CLI
+### For Existing Setups
 
-### Step 1: Bootstrap AWS Accounts
+If bootstrap is already complete and you're making changes:
 
-**Important**: Bootstrap must be done once per account manually before using Terragrunt.
+Ensure the following are already configured:
+- ✅ Bootstrap completed for all accounts (S3 backend, OIDC, IAM roles)
+- ✅ GitHub secrets configured (AWS_*_ACCOUNT_ID, AWS_*_ROLE_ARN)
+- ✅ Account IDs updated in `account.hcl` files
 
-```bash
-cd sre/terraform/modules/bootstrap
-terraform init
-terraform apply \
-  -var="environment=dev" \
-  -var="account_id=096610237522" \
-  -var="region=us-east-1" \
-  -var="github_org=your-github-org" \
-  -var="github_repo=your-repo-name"
+### Deploy Infrastructure Changes
+
+**Option A: Via GitHub Actions (Recommended) - Staged Deployment**
+
+The infrastructure uses a **staged deployment** approach with 4 sequential stages:
+
+1. Go to **Actions → Terraform GitOps → Run workflow**
+2. Select **Environment** (dev, qa, or prod)
+3. Select **Stage**:
+   - **1-networking**: VPC, subnets, NAT gateways
+   - **2-eks-cluster**: EKS control plane and node groups
+   - **3-iam**: IRSA roles for service accounts
+   - **4-eks-addons**: EKS addons (EBS CSI driver, etc.)
+4. Run each stage sequentially for a fresh deployment
+
+**Fresh Deployment Example:**
+```
+1. Plan & Apply Stage 1-networking
+2. Plan & Apply Stage 2-eks-cluster
+3. Plan & Apply Stage 3-iam
+4. Plan & Apply Stage 4-eks-addons
 ```
 
-This creates:
-- S3 bucket: `tekmetric-terraform-state-{account-id}`
-- DynamoDB table: `tekmetric-terraform-locks-{account-id}`
-- **GitHub OIDC provider** (for keyless authentication)
-- **GitHubActionsRole-{environment}** (for GitHub Actions workflows)
-- IAM roles: `TerraformExecution`, `TerraformStateAccess`
-
-**Important:** After the bootstrap completes, note the `github_actions_role_arn` output - you'll need this for GitHub Secrets.
-
-Repeat for QA and Prod accounts.
-
-### Step 2: Configure GitHub Secrets
-
-The bootstrap step (Step 1) already created the GitHub OIDC provider and IAM roles. Now you just need to configure GitHub Secrets.
-
-In GitHub repository settings (Settings → Secrets and variables → Actions), add these secrets using the outputs from the bootstrap:
-
-**For Dev:**
+**Quick Update (existing infrastructure):**
 ```
-AWS_DEV_ACCOUNT_ID=123456789012  # Your actual AWS account ID
-AWS_DEV_ROLE_ARN=<copy from bootstrap output: github_actions_role_arn>
+Select Stage: all (runs all modules together)
 ```
 
-**For QA:**
-```
-AWS_QA_ACCOUNT_ID=234567890123
-AWS_QA_ROLE_ARN=<copy from bootstrap output: github_actions_role_arn>
-```
-
-**For Prod:**
-```
-AWS_PROD_ACCOUNT_ID=345678901234
-AWS_PROD_ROLE_ARN=<copy from bootstrap output: github_actions_role_arn>
-```
-
-**Important:**
-- No AWS access keys or secret keys are needed! OIDC provides temporary credentials automatically.
-- The bootstrap module created everything needed for OIDC authentication.
-- Simply copy the `github_actions_role_arn` output from each bootstrap run.
-
-### Step 3: Update Account IDs
-
-Edit these files with actual AWS account IDs:
-- `sre/terragrunt/environments/dev/account.hcl`
-- `sre/terragrunt/environments/qa/account.hcl`
-- `sre/terragrunt/environments/prod/account.hcl`
-
-### Step 4: Deploy Infrastructure
-
-**Option A: Via GitHub Actions (Recommended)**
-
+**PR-Driven Deployment:**
 1. Create a PR with infrastructure changes
-2. Workflow `sre-terraform-plan` runs automatically
-3. Review plan output in PR
-4. Merge PR to trigger `sre-terraform-apply`
+2. Comment `/terraform plan dev` to preview changes
+3. Comment `/terraform apply dev` to deploy (or merge PR)
+
+📖 **For detailed staged deployment guide**, see [STAGED-DEPLOYMENT.md](./STAGED-DEPLOYMENT.md)
 
 **Option B: Locally**
 
 ```bash
 cd sre/terragrunt/environments/dev
 
-# Plan
-terragrunt run-all plan
+# Staged deployment
+cd networking && terragrunt plan && terragrunt apply
+cd ../eks-cluster && terragrunt plan && terragrunt apply
+cd ../iam && terragrunt plan && terragrunt apply
+cd ../eks-addons && terragrunt plan && terragrunt apply
 
-# Apply
+# Or all at once (if dependencies already exist)
+terragrunt run-all plan
 terragrunt run-all apply
 ```
 
@@ -140,28 +152,41 @@ terragrunt run-all apply
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| **terraform-plan** | PR to master | Preview infrastructure changes |
-| **terraform-apply** | Push to master | Deploy infrastructure changes |
+| **sre-terraform-gitops** | Manual dispatch, PR comments, PRs | Deploy infrastructure with staged deployment support |
+| **sre-environment-destroy** | Manual dispatch | Destroy all infrastructure (non-prod only) |
 
 ### Environment Lifecycle
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| **environment-start** | Manual | Scale workloads from 0 to saved replica counts |
-| **environment-stop** | Manual | Scale workloads to 0 (keeps infrastructure) |
-| **environment-destroy** | Manual | Destroy all infrastructure (non-prod only) |
+| **sre-environment-start** | Manual dispatch | Scale workloads from 0 to saved replica counts |
+| **sre-environment-stop** | Manual dispatch | Scale workloads to 0 (keeps infrastructure) |
+
+### Application Delivery
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| **service-backend-workflow** | Push to main, PRs | Build, test, scan, and publish backend service |
+| **sre-helm-common-chart** | Push to main | Publish shared Helm library chart |
 
 ### Usage Examples
 
+**Deploy infrastructure (staged approach)**:
+```
+Actions → Terraform GitOps → Environment: dev → Stage: 1-networking → Action: apply
+(Repeat for stages 2-4)
+```
+📖 See [STAGED-DEPLOYMENT.md](./STAGED-DEPLOYMENT.md) for detailed guide
+
 **Stop environment for cost savings (nights/weekends)**:
 ```
-Actions → Start Environment → Select environment → Run workflow
+Actions → Stop Environment → Select environment → Run workflow
 ```
-Saves ~70% on compute costs, infrastructure remains available.
+Saves ~50% on compute costs, infrastructure remains available.
 
 **Start environment**:
 ```
-Actions → Stop Environment → Select environment → Run workflow
+Actions → Start Environment → Select environment → Run workflow
 ```
 Restarts in minutes from saved state.
 
@@ -170,6 +195,8 @@ Restarts in minutes from saved state.
 Actions → Destroy Environment → Select dev/qa → Type "destroy" → Run workflow
 ```
 Complete teardown, 100% cost savings.
+
+📖 **For complete workflow documentation**, see [GitHub Workflows README](../.github/workflows/README.md)
 
 ## 📊 Cost Estimates
 
@@ -203,14 +230,23 @@ Complete teardown, 100% cost savings.
 - **Encrypted state**: S3 + DynamoDB with encryption
 - **Audit logging**: CloudTrail + VPC Flow Logs
 
-## 📖 Module Documentation
+## 📖 Documentation
 
-Detailed documentation for each module:
+### Module Documentation
 
-- [Bootstrap Module](terraform/modules/bootstrap/README.md) - S3 state backend setup
-- [Networking Module](terraform/modules/networking/README.md) - VPC and networking
-- [IAM Module](terraform/modules/iam/README.md) - GitHub OIDC and IRSA roles
-- [EKS Module](terraform/modules/eks/README.md) - Kubernetes clusters
+Detailed documentation for each Terraform module:
+
+- [Bootstrap Module](terraform/modules/bootstrap/README.md) - S3 state backend, DynamoDB locks, GitHub OIDC setup
+- [Networking Module](terraform/modules/networking/README.md) - VPC, subnets, NAT gateways, security groups
+- [IAM Module](terraform/modules/iam/README.md) - GitHub OIDC provider and IRSA roles
+- [EKS Module](terraform/modules/eks/README.md) - EKS cluster control plane and node groups
+- EKS Addons Module - EKS addons (VPC CNI, CoreDNS, EBS CSI driver)
+
+### Workflow Documentation
+
+- [GitHub Actions Documentation](../.github/actions/README.md) - Custom composite actions
+- [GitHub Workflows Documentation](../.github/workflows/README.md) - CI/CD workflows
+- [Staged Deployment Guide](STAGED-DEPLOYMENT.md) - Infrastructure deployment strategy
 
 ## 🔧 Common Operations
 
