@@ -201,6 +201,12 @@ resource "aws_eks_addon" "vpc_cni" {
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "PRESERVE"
 
+  timeouts {
+    create = "30m"
+    update = "30m"
+    delete = "15m"
+  }
+
   depends_on = [
     aws_eks_node_group.main
   ]
@@ -215,6 +221,12 @@ resource "aws_eks_addon" "coredns" {
   addon_version               = data.aws_eks_addon_version.coredns.version
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "PRESERVE"
+
+  timeouts {
+    create = "30m"
+    update = "30m"
+    delete = "15m"
+  }
 
   depends_on = [
     aws_eks_node_group.main
@@ -231,6 +243,12 @@ resource "aws_eks_addon" "kube_proxy" {
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "PRESERVE"
 
+  timeouts {
+    create = "30m"
+    update = "30m"
+    delete = "15m"
+  }
+
   depends_on = [
     aws_eks_node_group.main
   ]
@@ -245,6 +263,12 @@ resource "aws_eks_addon" "ebs_csi_driver" {
   addon_version               = data.aws_eks_addon_version.ebs_csi_driver.version
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "PRESERVE"
+
+  timeouts {
+    create = "30m"
+    update = "30m"
+    delete = "15m"
+  }
 
   depends_on = [
     aws_eks_node_group.main
