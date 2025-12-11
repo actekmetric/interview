@@ -61,7 +61,7 @@ inputs = {
   }
 
   # OIDC provider for IRSA
-  enable_irsa = false
+  enable_irsa = true
 
   # Create IAM group for EKS admins
   # Users added to this group will automatically get full cluster access

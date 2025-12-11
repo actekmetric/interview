@@ -81,8 +81,10 @@ resource "aws_eks_addon" "kube_proxy" {
   tags = local.common_tags
 }
 
-# EBS CSI Driver Addon (with IRSA role)
+# EBS CSI Driver Addon (only install if IRSA role is provided)
 resource "aws_eks_addon" "ebs_csi_driver" {
+  count = var.ebs_csi_driver_role_arn != "" ? 1 : 0
+
   cluster_name = var.cluster_name
   addon_name   = "aws-ebs-csi-driver"
 

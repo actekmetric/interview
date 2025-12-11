@@ -35,7 +35,7 @@ inputs = {
   github_repo        = "interview"
   enable_github_oidc = false
 
-  # IRSA roles (enable after EKS cluster is created)
-  # Note: cluster_oidc_issuer_url not needed when enable_irsa_roles = false
-  enable_irsa_roles = false
+  # IRSA roles (enabled now that EKS cluster exists)
+  cluster_oidc_issuer_url = dependency.eks_cluster.outputs.cluster_oidc_issuer_url
+  enable_irsa_roles       = true
 }
