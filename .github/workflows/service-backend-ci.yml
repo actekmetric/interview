@@ -123,24 +123,68 @@ jobs:
     needs: build-and-test
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
     permissions:
-      contents: write
-      pages: write
+      id-token: write
+      contents: read
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Publish Helm Chart to GitHub Pages
-        uses: ./.github/actions/helm-publish
+      - name: Configure AWS credentials
+        uses: ./.github/actions/aws-assume-role
         with:
-          chart-path: sre/helm/backend
-          chart-version: ${{ needs.build-and-test.outputs.version }}
-          app-version: ${{ needs.build-and-test.outputs.version }}
-          helm-version: v3.14.0
-          skip-existing: true
-          token: ${{ secrets.GITHUB_TOKEN }}
+          environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
+          aws-region: us-east-1
+
+      - name: Install Helm
+        run: |
+          echo "📦 Installing Helm..."
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          helm version
+
+      - name: Install helm-s3 plugin
+        run: |
+          echo "📦 Installing helm-s3 plugin..."
+          helm plugin install https://github.com/hypnoglow/helm-s3.git --version 0.16.0
+          helm plugin list
+
+      - name: Initialize S3 Helm repository
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+
+          echo "🔧 Initializing S3 Helm repository..."
+
+          # Initialize creates index.yaml if it doesn't exist
+          helm s3 init ${REPO_PATH} || echo "✅ Repository already initialized"
+
+      - name: Package and Push Helm chart to S3
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+          REPO_NAME="tekmetric-s3"
+          VERSION="${{ needs.build-and-test.outputs.version }}"
+
+          echo "📦 Packaging Helm chart..."
+          helm package sre/helm/backend \
+            --version ${VERSION} \
+            --app-version ${VERSION}
+
+          echo "📤 Adding S3 repo..."
+          helm repo add ${REPO_NAME} ${REPO_PATH}
+
+          echo "📤 Pushing chart to S3..."
+          CHART_FILE="backend-service-${VERSION}.tgz"
+          helm s3 push ${CHART_FILE} ${REPO_NAME} --force
+
+          echo "✅ Chart pushed to ${REPO_PATH}"
+
+          # Verify
+          echo "🔍 Verifying chart availability..."
+          helm repo update ${REPO_NAME}
+          helm search repo ${REPO_NAME}/backend-service --versions | head -5
 
   workflow-summary:
     name: Workflow Summary

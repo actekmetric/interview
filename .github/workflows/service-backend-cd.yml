@@ -204,15 +204,35 @@ jobs:
 
           echo "✅ EKS access configured"
 
-      - name: Add Helm repository
+      - name: Install helm-s3 plugin
         run: |
-          echo "📦 Adding Helm repository..."
+          echo "📦 Installing helm-s3 plugin..."
+          helm plugin install https://github.com/hypnoglow/helm-s3.git --version 0.16.0
+          helm plugin list
 
-          helm repo add interview https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
-          helm repo update
+      - name: Add S3 Helm repository
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+          REPO_NAME="tekmetric-s3"
 
-          echo "✅ Helm repository added"
-          helm search repo interview
+          echo "📦 Adding S3 Helm repository..."
+          helm repo add ${REPO_NAME} ${REPO_PATH}
+          helm repo update ${REPO_NAME}
+
+          echo "✅ Helm repository added and updated"
+          echo "📋 Available charts:"
+          helm search repo ${REPO_NAME} --versions | head -20
+
+          # Verify backend-service chart is available
+          if ! helm search repo ${REPO_NAME}/backend-service --versions | grep -q backend-service; then
+            echo "❌ ERROR: backend-service chart not found in S3 repository"
+            echo "Checking S3 bucket contents..."
+            aws s3 ls ${REPO_PATH}/ --recursive || true
+            exit 1
+          fi
+
+          echo "✅ backend-service chart is available"
 
       - name: Deploy to EKS with Helm
         id: helm-deploy
@@ -221,7 +241,7 @@ jobs:
 
           RELEASE_NAME="backend"
           NAMESPACE="default"
-          CHART="interview/backend-service"
+          CHART="tekmetric-s3/backend-service"
           IMAGE_TAG="${{ needs.determine-environment.outputs.version }}"
           ECR_REGISTRY="${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com"
 
