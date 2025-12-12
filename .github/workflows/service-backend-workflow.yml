@@ -128,9 +128,10 @@ jobs:
       - name: Configure AWS credentials via OIDC
         uses: ./.github/actions/aws-assume-role
         with:
-          role-to-assume: ${{ secrets[format('AWS_{0}_ROLE_ARN', matrix.env_upper)] }}
+          environment: ${{ matrix.env }}
+          role-arn: ${{ secrets[format('AWS_{0}_ROLE_ARN', matrix.env_upper)] }}
+          account-id: ${{ secrets[format('AWS_{0}_ACCOUNT_ID', matrix.env_upper)] }}
           aws-region: us-east-1
-          role-session-name: github-ecr-push-${{ matrix.env }}
 
       - name: Login to GHCR to pull image
         run: |
