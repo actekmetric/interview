@@ -1,0 +1,351 @@
+name: Backend Service CD
+
+on:
+  workflow_run:
+    workflows: ["Backend Service CI/CD"]
+    types: [completed]
+    branches: [main, master]
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+      version:
+        description: 'Image version tag (e.g., 1.0.123-abc12345-SNAPSHOT)'
+        required: true
+        type: string
+      skip-tests:
+        description: 'Skip post-deployment tests'
+        required: false
+        type: boolean
+        default: false
+
+# Cancel previous runs for the same branch
+concurrency:
+  group: backend-cd-${{ github.ref }}
+  cancel-in-progress: false  # Don't cancel deployments
+
+jobs:
+  determine-environment:
+    name: Determine Deployment Target
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    outputs:
+      environment: ${{ steps.determine.outputs.environment }}
+      version: ${{ steps.determine.outputs.version }}
+      should-deploy: ${{ steps.determine.outputs.should-deploy }}
+      image-ref: ${{ steps.determine.outputs.image-ref }}
+
+    steps:
+      - name: Download CI artifacts
+        if: github.event_name == 'workflow_run'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Get artifacts from the completed CI workflow
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: ${{ github.event.workflow_run.id }}
+            });
+
+            console.log('Artifacts:', artifacts.data);
+
+      - name: Determine deployment target
+        id: determine
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Manual dispatch - use inputs
+            ENV="${{ inputs.environment }}"
+            VERSION="${{ inputs.version }}"
+            SHOULD_DEPLOY="true"
+          else
+            # Automatic from CI - get version from workflow run
+            # For now, we'll get it from the commit message or workflow name
+            # In production, you'd pass this via artifacts or API
+
+            # Get the CI workflow run details
+            WORKFLOW_ID="${{ github.event.workflow_run.id }}"
+            echo "CI Workflow Run ID: ${WORKFLOW_ID}"
+
+            # Extract version from workflow run (placeholder - needs actual implementation)
+            # For now, let's assume SNAPSHOT for automatic triggers
+            VERSION="auto-SNAPSHOT"
+
+            if [[ "$VERSION" == *"SNAPSHOT"* ]]; then
+              ENV="dev"
+              SHOULD_DEPLOY="true"
+            elif [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+-RC[0-9]+$ ]]; then
+              ENV="qa"
+              SHOULD_DEPLOY="true"
+            elif [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              ENV="prod"
+              SHOULD_DEPLOY="false"  # Prod requires manual approval
+            else
+              ENV="none"
+              SHOULD_DEPLOY="false"
+              echo "⚠️  Unknown version pattern: ${VERSION}"
+            fi
+          fi
+
+          IMAGE_REF="ghcr.io/${{ github.repository_owner }}/backend:${VERSION}"
+
+          echo "environment=${ENV}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "should-deploy=${SHOULD_DEPLOY}" >> $GITHUB_OUTPUT
+          echo "image-ref=${IMAGE_REF}" >> $GITHUB_OUTPUT
+
+          echo "## 🎯 Deployment Target" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${ENV}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Auto-deploy:** \`${SHOULD_DEPLOY}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${IMAGE_REF}\`" >> $GITHUB_STEP_SUMMARY
+
+  deploy-to-dev:
+    name: Deploy to DEV
+    runs-on: ubuntu-latest
+    needs: determine-environment
+    if: needs.determine-environment.outputs.environment == 'dev' && needs.determine-environment.outputs.should-deploy == 'true'
+    environment:
+      name: dev
+      url: http://backend-dev.tekmetric.local
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
+          aws-region: us-east-1
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Provision ECR and Push Image
+        id: ecr-push
+        uses: ./.github/actions/ecr-provision-and-push
+        with:
+          repository-name: backend
+          environment: dev
+          image-ref: ${{ needs.determine-environment.outputs.image-ref }}
+          image-tag: ${{ needs.determine-environment.outputs.version }}
+          aws-region: us-east-1
+          max-image-count: 10
+          image-tag-mutability: MUTABLE
+
+      - name: Configure kubectl for EKS
+        run: |
+          echo "🔧 Configuring kubectl for EKS cluster..."
+
+          aws eks update-kubeconfig \
+            --name tekmetric-dev \
+            --region us-east-1 \
+            --role-arn arn:aws:iam::${{ secrets.AWS_DEV_ACCOUNT_ID }}:role/tekmetric-dev-admins-role
+
+          echo "✅ kubectl configured"
+
+          # Verify connection
+          kubectl version --client
+          kubectl get nodes
+
+          echo "📊 Cluster info:"
+          kubectl cluster-info
+
+      - name: Create namespace if not exists
+        run: |
+          kubectl create namespace default --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Add Helm repository
+        run: |
+          echo "📦 Adding Helm repository..."
+
+          helm repo add interview https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+          helm repo update
+
+          echo "✅ Helm repository added"
+
+          # List available charts
+          helm search repo interview
+
+      - name: Deploy to EKS with Helm
+        id: helm-deploy
+        run: |
+          echo "🚀 Deploying backend service to EKS..."
+
+          RELEASE_NAME="backend"
+          NAMESPACE="default"
+          CHART="interview/backend-service"
+          IMAGE_TAG="${{ needs.determine-environment.outputs.version }}"
+          ECR_REGISTRY="${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com"
+
+          helm upgrade --install ${RELEASE_NAME} ${CHART} \
+            --namespace ${NAMESPACE} \
+            --create-namespace \
+            --set tekmetric-common-chart.image.repository=${ECR_REGISTRY} \
+            --set tekmetric-common-chart.image.name=backend \
+            --set tekmetric-common-chart.image.tag=${IMAGE_TAG} \
+            --set tekmetric-common-chart.image.pullPolicy=Always \
+            --values sre/helm/backend/values-dev.yaml \
+            --wait \
+            --timeout 10m \
+            --atomic \
+            --cleanup-on-fail
+
+          echo "✅ Helm deployment completed"
+
+          # Get deployment info
+          echo "deployment-name=${RELEASE_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Wait for rollout to complete
+        run: |
+          echo "⏳ Waiting for deployment rollout..."
+
+          kubectl rollout status deployment/backend \
+            -n default \
+            --timeout=5m
+
+          echo "✅ Rollout completed successfully"
+
+      - name: Verify deployment
+        run: |
+          echo "🔍 Verifying deployment..."
+
+          # Get pod status
+          echo "Pod status:"
+          kubectl get pods -n default -l app.kubernetes.io/name=backend
+
+          # Get deployment details
+          echo "Deployment details:"
+          kubectl describe deployment backend -n default | tail -20
+
+          # Check for any failed pods
+          FAILED_PODS=$(kubectl get pods -n default -l app.kubernetes.io/name=backend --field-selector=status.phase!=Running --no-headers | wc -l)
+
+          if [ $FAILED_PODS -gt 0 ]; then
+            echo "❌ Found $FAILED_PODS failed pods"
+            kubectl get pods -n default -l app.kubernetes.io/name=backend
+            exit 1
+          fi
+
+          echo "✅ All pods are running"
+
+      - name: Test health endpoint
+        if: ${{ !inputs.skip-tests }}
+        continue-on-error: true
+        run: |
+          echo "🏥 Testing health endpoint..."
+
+          # Get service details
+          kubectl get service backend -n default
+
+          # Port-forward to test locally (since we don't have LoadBalancer in dev)
+          kubectl port-forward -n default service/backend 8080:8080 &
+          PF_PID=$!
+
+          # Wait for port-forward to be ready
+          sleep 5
+
+          # Test health endpoint
+          for i in {1..10}; do
+            if curl -f http://localhost:8080/actuator/health; then
+              echo "✅ Health check passed"
+              kill $PF_PID
+              exit 0
+            fi
+            echo "Attempt $i/10 failed, retrying..."
+            sleep 5
+          done
+
+          echo "⚠️  Health check failed after 10 attempts"
+          kill $PF_PID
+          exit 1
+
+      - name: Get deployment logs
+        if: always()
+        run: |
+          echo "📝 Recent deployment logs:"
+          kubectl logs -n default -l app.kubernetes.io/name=backend --tail=50 || echo "No logs available yet"
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "## 🚀 DEV Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** DEV" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.determine-environment.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ steps.ecr-push.outputs.ecr-image-uri }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Namespace:** \`default\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Deployment Status" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "✅ **Status:** Deployed successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Status:** Deployment failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Quick Commands" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# View pods" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl get pods -n default -l app.kubernetes.io/name=backend" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# View logs" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl logs -n default -l app.kubernetes.io/name=backend --tail=100" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Rollback" >> $GITHUB_STEP_SUMMARY
+          echo "helm rollback backend -n default" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  workflow-summary:
+    name: Workflow Summary
+    runs-on: ubuntu-latest
+    needs: [determine-environment, deploy-to-dev]
+    if: always()
+
+    steps:
+      - name: Generate Workflow Summary
+        run: |
+          echo "## 🚀 Backend CD Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "**CI Workflow:** [\`${{ github.event.workflow_run.name }}\`](${{ github.event.workflow_run.html_url }})" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Job Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Determine Environment
+          if [[ "${{ needs.determine-environment.result }}" == "success" ]]; then
+            echo "| Determine Environment | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Determine Environment | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Deploy to DEV
+          if [[ "${{ needs.deploy-to-dev.result }}" == "success" ]]; then
+            echo "| Deploy to DEV | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.deploy-to-dev.result }}" == "failure" ]]; then
+            echo "| Deploy to DEV | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.deploy-to-dev.result }}" == "skipped" ]]; then
+            echo "| Deploy to DEV | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi

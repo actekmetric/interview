@@ -1,0 +1,168 @@
+# Development Environment Overrides for Backend Service
+
+tekmetric-common-chart:
+  # Replica count - Single replica for dev
+  replicaCount: 1
+
+  # Container image configuration
+  image:
+    repository: 596308305263.dkr.ecr.us-east-1.amazonaws.com  # Dev account ECR
+    name: backend
+    tag: ""  # Will be overridden by CD workflow
+    pullPolicy: Always  # Always pull latest in dev
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+    managementPort: null
+    annotations: {}
+
+  # Ingress configuration (disabled by default, enable if you have ingress controller)
+  ingress:
+    enabled: false
+    className: nginx
+    annotations: {}
+    hosts:
+      - host: backend-dev.tekmetric.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  # Health probes - Spring Boot Actuator endpoints
+  probes:
+    enabled: true
+    liveness:
+      path: /actuator/health/liveness
+      port: 8080
+      initialDelaySeconds: 60
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    readiness:
+      path: /actuator/health/readiness
+      port: 8080
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    startup:
+      path: /actuator/health/readiness
+      port: 8080
+      initialDelaySeconds: 0
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 30
+      successThreshold: 1
+
+  # Resource limits and requests - Lower for dev
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  # Horizontal Pod Autoscaler - Disabled in dev
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPU: 70
+    targetMemory: 80
+
+  # Pod Disruption Budget - Disabled in dev (single replica)
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+
+  # Observability configuration
+  observability:
+    enabled: true
+    otel:
+      enabled: false  # Enable when OTEL collector is deployed
+      endpoint: "http://otel-collector.observability.svc.cluster.local:4318"
+      protocol: "http/protobuf"
+      serviceName: "backend-service"
+
+  # Environment variables
+  env:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "dev"
+    - name: SERVER_PORT
+      value: "8080"
+    - name: MANAGEMENT_SERVER_PORT
+      value: "8080"
+    - name: JAVA_OPTS
+      value: "-Xms128m -Xmx256m -XX:+UseG1GC"
+
+  # JVM configuration
+  jvm:
+    enabled: true
+    options: "-Xms128m -Xmx256m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    readOnlyRootFilesystem: false  # Spring Boot needs write access for temp files
+
+  # Pod annotations
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/actuator/prometheus"
+
+  # Node selector - Run on any node in dev
+  nodeSelector: {}
+
+  # Tolerations - No special tolerations in dev
+  tolerations: []
+
+  # Affinity rules - Prefer spreading pods across nodes
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - backend
+            topologyKey: kubernetes.io/hostname
+
+  # ServiceAccount for IRSA (IAM Roles for Service Accounts)
+  serviceAccount:
+    create: true
+    name: "backend-sa"
+    annotations: {}
+      # eks.amazonaws.com/role-arn: "arn:aws:iam::596308305263:role/backend-service-irsa-dev"
+
+  # ConfigMaps and Secrets (optional)
+  configMaps: {}
+  secrets: {}
+
+  # Volume mounts (optional)
+  volumeMounts: []
+  volumes: []
+
+  # Network Policy (optional - commented out by default)
+  networkPolicy:
+    enabled: false
+    policyTypes:
+      - Ingress
+      - Egress
+    ingress:
+      - from:
+        - podSelector: {}
+    egress:
+      - to:
+        - podSelector: {}
