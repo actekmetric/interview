@@ -100,6 +100,49 @@ jobs:
           registry-username: ${{ github.actor }}
           registry-password: ${{ secrets.GITHUB_TOKEN }}
 
+  push-to-ecr:
+    name: Push to AWS ECR
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    permissions:
+      id-token: write  # Required for OIDC
+      contents: read
+    strategy:
+      matrix:
+        environment: [dev, qa, prod]
+    outputs:
+      ecr-repository-url: ${{ steps.ecr-push.outputs.ecr-repository-url }}
+      ecr-image-uri: ${{ steps.ecr-push.outputs.ecr-image-uri }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: ./.github/actions/aws-assume-role
+        with:
+          role-to-assume: ${{ secrets[format('AWS_{0}_ROLE_ARN', upper(matrix.environment))] }}
+          aws-region: us-east-1
+          role-session-name: github-ecr-push-${{ matrix.environment }}
+
+      - name: Login to GHCR to pull image
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Provision ECR and Push Image
+        id: ecr-push
+        uses: ./.github/actions/ecr-provision-and-push
+        with:
+          repository-name: backend
+          environment: ${{ matrix.environment }}
+          image-ref: ${{ needs.build-and-test.outputs.image-ref }}
+          image-tag: ${{ needs.build-and-test.outputs.version }}
+          aws-region: us-east-1
+          max-image-count: ${{ matrix.environment == 'prod' && '20' || '10' }}
+          untagged-expire-days: ${{ matrix.environment == 'prod' && '3' || '7' }}
+          image-tag-mutability: ${{ matrix.environment == 'prod' && 'IMMUTABLE' || 'MUTABLE' }}
+
   publish-helm-chart:
     name: Publish Helm Chart
     runs-on: ubuntu-latest
@@ -128,7 +171,7 @@ jobs:
   workflow-summary:
     name: Workflow Summary
     runs-on: ubuntu-latest
-    needs: [build-and-test, publish-helm-chart]
+    needs: [build-and-test, push-to-ecr, publish-helm-chart]
     if: always()
 
     steps:
@@ -153,6 +196,15 @@ jobs:
             echo "| Build, Test & Security Scan | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
           else
             echo "| Build, Test & Security Scan | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Push to ECR
+          if [[ "${{ needs.push-to-ecr.result }}" == "success" ]]; then
+            echo "| Push to AWS ECR (dev/qa/prod) | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.push-to-ecr.result }}" == "failure" ]]; then
+            echo "| Push to AWS ECR (dev/qa/prod) | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Push to AWS ECR (dev/qa/prod) | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
           fi
 
           # Helm Chart
