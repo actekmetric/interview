@@ -2,7 +2,7 @@ name: Backend Service CD
 
 on:
   workflow_run:
-    workflows: ["Backend Service CI/CD"]
+    workflows: ["Backend Service CI"]
     types: [completed]
     branches: [main, master]
 
