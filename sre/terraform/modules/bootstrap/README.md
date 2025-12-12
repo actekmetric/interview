@@ -12,14 +12,14 @@ The bootstrap module is a **one-time setup per AWS account** that creates:
 ## Resources Created
 
 ### S3 Bucket
-- **Name**: `tekmetric-terraform-state-{account-id}`
+- **Name**: `tekmetric-terraform-state-{region}-{account-id}`
 - **Versioning**: Enabled (with 30-day lifecycle)
 - **Encryption**: AES-256 (default) or KMS (optional)
 - **Public Access**: Blocked
 - **Lifecycle Policy**: Deletes old versions after configurable days
 
 ### DynamoDB Table
-- **Name**: `tekmetric-terraform-locks-{account-id}`
+- **Name**: `tekmetric-terraform-locks-{region}-{account-id}`
 - **Billing**: Pay-per-request
 - **Hash Key**: LockID (String)
 - **Point-in-time Recovery**: Enabled for production
@@ -91,10 +91,10 @@ After the first `terraform apply` creates the S3 bucket and DynamoDB table, you 
    ```hcl
    terraform {
      backend "s3" {
-       bucket         = "tekmetric-terraform-state-123456789012"
+       bucket         = "tekmetric-terraform-state-us-east-1-123456789012"
        key            = "bootstrap/terraform.tfstate"
        region         = "us-east-1"
-       dynamodb_table = "tekmetric-terraform-locks-123456789012"
+       dynamodb_table = "tekmetric-terraform-locks-us-east-1-123456789012"
        encrypt        = true
      }
    }
@@ -107,7 +107,7 @@ After the first `terraform apply` creates the S3 bucket and DynamoDB table, you 
 
 3. Verify the state was moved:
    ```bash
-   aws s3 ls s3://tekmetric-terraform-state-123456789012/bootstrap/
+   aws s3 ls s3://tekmetric-terraform-state-us-east-1-123456789012/bootstrap/
    ```
 
 4. Delete local state files (they're now in S3):
@@ -175,11 +175,11 @@ After applying this module, you'll need to:
    remote_state {
      backend = "s3"
      config = {
-       bucket         = "tekmetric-terraform-state-123456789012"
+       bucket         = "tekmetric-terraform-state-us-east-1-123456789012"
        key            = "${path_relative_to_include()}/terraform.tfstate"
        region         = "us-east-1"
        encrypt        = true
-       dynamodb_table = "tekmetric-terraform-locks-123456789012"
+       dynamodb_table = "tekmetric-terraform-locks-us-east-1-123456789012"
      }
    }
    ```
@@ -218,17 +218,17 @@ After applying this module, you'll need to:
 If a lock persists after a failed run:
 ```bash
 # List locks
-aws dynamodb scan --table-name tekmetric-terraform-locks-123456789012
+aws dynamodb scan --table-name tekmetric-terraform-locks-us-east-1-123456789012
 
 # Delete stale lock (use with caution)
 aws dynamodb delete-item \
-  --table-name tekmetric-terraform-locks-123456789012 \
+  --table-name tekmetric-terraform-locks-us-east-1-123456789012 \
   --key '{"LockID":{"S":"bucket-name/path/to/state/terraform.tfstate"}}'
 ```
 
 ### Bucket Already Exists
 If you need to import an existing bucket:
 ```bash
-terraform import aws_s3_bucket.terraform_state tekmetric-terraform-state-123456789012
-terraform import aws_dynamodb_table.terraform_locks tekmetric-terraform-locks-123456789012
+terraform import aws_s3_bucket.terraform_state tekmetric-terraform-state-us-east-1-123456789012
+terraform import aws_dynamodb_table.terraform_locks tekmetric-terraform-locks-us-east-1-123456789012
 ```

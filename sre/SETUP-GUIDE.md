@@ -256,8 +256,8 @@ AWS_PROFILE=dev terraform apply \
 ```
 
 **What Gets Created:**
-- ✅ S3 bucket: `tekmetric-terraform-state-123456789012`
-- ✅ DynamoDB table: `tekmetric-terraform-locks-123456789012`
+- ✅ S3 bucket: `tekmetric-terraform-state-us-east-1-123456789012`
+- ✅ DynamoDB table: `tekmetric-terraform-locks-us-east-1-123456789012`
 - ✅ GitHub OIDC provider
 - ✅ IAM role: `GitHubActionsRole-dev`
 
@@ -268,7 +268,7 @@ AWS_PROFILE=dev terraform output github_actions_role_arn
 # Output: arn:aws:iam::123456789012:role/GitHubActionsRole-dev
 
 AWS_PROFILE=dev terraform output state_bucket_name
-# Output: tekmetric-terraform-state-123456789012
+# Output: tekmetric-terraform-state-us-east-1-123456789012
 ```
 
 ### Step 2.3: Migrate Bootstrap State to S3
@@ -282,10 +282,10 @@ AWS_PROFILE=dev terraform output state_bucket_name
 cat > backend.tf << 'EOF'
 terraform {
   backend "s3" {
-    bucket         = "tekmetric-terraform-state-123456789012"
+    bucket         = "tekmetric-terraform-state-us-east-1-123456789012"
     key            = "bootstrap/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "tekmetric-terraform-locks-123456789012"
+    dynamodb_table = "tekmetric-terraform-locks-us-east-1-123456789012"
     encrypt        = true
   }
 }
@@ -298,7 +298,7 @@ AWS_PROFILE=dev terraform init -migrate-state
 # Answer: yes
 
 # Verify state is in S3
-aws s3 ls s3://tekmetric-terraform-state-123456789012/bootstrap/ --profile dev
+aws s3 ls s3://tekmetric-terraform-state-us-east-1-123456789012/bootstrap/ --profile dev
 
 # Clean up local state files
 rm -f terraform.tfstate terraform.tfstate.backup
@@ -334,10 +334,10 @@ AWS_PROFILE=qa terraform apply \
 cat > backend.tf << 'EOF'
 terraform {
   backend "s3" {
-    bucket         = "tekmetric-terraform-state-234567890123"
+    bucket         = "tekmetric-terraform-state-us-east-1-234567890123"
     key            = "bootstrap/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "tekmetric-terraform-locks-234567890123"
+    dynamodb_table = "tekmetric-terraform-locks-us-east-1-234567890123"
     encrypt        = true
   }
 }
@@ -369,10 +369,10 @@ AWS_PROFILE=prod terraform apply \
 cat > backend.tf << 'EOF'
 terraform {
   backend "s3" {
-    bucket         = "tekmetric-terraform-state-345678901234"
+    bucket         = "tekmetric-terraform-state-us-east-1-345678901234"
     key            = "bootstrap/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "tekmetric-terraform-locks-345678901234"
+    dynamodb_table = "tekmetric-terraform-locks-us-east-1-345678901234"
     encrypt        = true
   }
 }
@@ -661,9 +661,9 @@ aws iam get-role --role-name GitHubActionsRole-dev --profile dev
 
 **Solution:**
 ```bash
-# Import existing resources
-terraform import aws_s3_bucket.terraform_state tekmetric-terraform-state-123456789012
-terraform import aws_dynamodb_table.terraform_locks tekmetric-terraform-locks-123456789012
+# Import existing resources (update account ID and region as needed)
+AWS_PROFILE=dev terraform import aws_s3_bucket.terraform_state tekmetric-terraform-state-us-east-1-123456789012
+AWS_PROFILE=dev terraform import aws_dynamodb_table.terraform_locks tekmetric-terraform-locks-us-east-1-123456789012
 ```
 
 ### Issue: "No outputs detected" during staged deployment

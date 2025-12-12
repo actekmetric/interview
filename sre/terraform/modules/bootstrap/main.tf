@@ -10,8 +10,8 @@ terraform {
 }
 
 locals {
-  bucket_name = "${var.state_bucket_prefix}-${var.account_id}"
-  table_name  = "${var.lock_table_prefix}-${var.account_id}"
+  bucket_name = "${var.state_bucket_prefix}-${var.region}-${var.account_id}"
+  table_name  = "${var.lock_table_prefix}-${var.region}-${var.account_id}"
 
   common_tags = merge(
     {
