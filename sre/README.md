@@ -405,6 +405,10 @@ kubectl get pods -A
 
 ## 📋 Implementation Checklist
 
+- [ ] Create AWS Organization with all features enabled
+- [ ] Create sub-accounts (dev, qa, prod)
+- [ ] Create IAM admin user in management account (not root!)
+- [ ] Enable MFA on root and admin users
 - [ ] Bootstrap all AWS accounts (dev, qa, prod)
 - [ ] Configure GitHub OIDC in each account
 - [ ] Update account IDs in terragrunt configs
