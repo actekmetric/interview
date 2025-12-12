@@ -25,11 +25,11 @@ remote_state {
   backend = "s3"
 
   config = {
-    bucket         = "tekmetric-terraform-state-${local.account_id}"
+    bucket         = "tekmetric-terraform-state-${local.region}-${local.account_id}"
     key            = "${path_relative_to_include()}/terraform.tfstate"
     region         = local.region
     encrypt        = true
-    dynamodb_table = "tekmetric-terraform-locks-${local.account_id}"
+    dynamodb_table = "tekmetric-terraform-locks-${local.region}-${local.account_id}"
 
     # Use role assumption for state access
     role_arn = "arn:aws:iam::${local.account_id}:role/TerraformExecution"
