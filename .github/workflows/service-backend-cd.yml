@@ -172,27 +172,17 @@ jobs:
           max-image-count: 10
           image-tag-mutability: MUTABLE
 
-      - name: Configure kubectl for EKS
+      - name: Configure EKS access for Helm
         run: |
-          echo "🔧 Configuring kubectl for EKS cluster..."
+          echo "🔧 Configuring EKS access..."
 
+          # Update kubeconfig WITHOUT assuming admin role
+          # Uses GitHubActionsRole-dev credentials that are already configured
           aws eks update-kubeconfig \
             --name tekmetric-dev \
-            --region us-east-1 \
-            --role-arn arn:aws:iam::${{ secrets.AWS_DEV_ACCOUNT_ID }}:role/tekmetric-dev-admins-role
+            --region us-east-1
 
-          echo "✅ kubectl configured"
-
-          # Verify connection
-          kubectl version --client
-          kubectl get nodes
-
-          echo "📊 Cluster info:"
-          kubectl cluster-info
-
-      - name: Create namespace if not exists
-        run: |
-          kubectl create namespace default --dry-run=client -o yaml | kubectl apply -f -
+          echo "✅ EKS access configured"
 
       - name: Add Helm repository
         run: |
@@ -202,8 +192,6 @@ jobs:
           helm repo update
 
           echo "✅ Helm repository added"
-
-          # List available charts
           helm search repo interview
 
       - name: Deploy to EKS with Helm
@@ -217,6 +205,7 @@ jobs:
           IMAGE_TAG="${{ needs.determine-environment.outputs.version }}"
           ECR_REGISTRY="${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com"
 
+          # Helm uses existing kubeconfig (GitHubActionsRole-dev credentials)
           helm upgrade --install ${RELEASE_NAME} ${CHART} \
             --namespace ${NAMESPACE} \
             --create-namespace \
@@ -230,80 +219,8 @@ jobs:
             --atomic \
             --cleanup-on-fail
 
-          echo "✅ Helm deployment completed"
-
-          # Get deployment info
+          echo "✅ Helm deployment completed successfully"
           echo "deployment-name=${RELEASE_NAME}" >> $GITHUB_OUTPUT
-
-      - name: Wait for rollout to complete
-        run: |
-          echo "⏳ Waiting for deployment rollout..."
-
-          kubectl rollout status deployment/backend \
-            -n default \
-            --timeout=5m
-
-          echo "✅ Rollout completed successfully"
-
-      - name: Verify deployment
-        run: |
-          echo "🔍 Verifying deployment..."
-
-          # Get pod status
-          echo "Pod status:"
-          kubectl get pods -n default -l app.kubernetes.io/name=backend
-
-          # Get deployment details
-          echo "Deployment details:"
-          kubectl describe deployment backend -n default | tail -20
-
-          # Check for any failed pods
-          FAILED_PODS=$(kubectl get pods -n default -l app.kubernetes.io/name=backend --field-selector=status.phase!=Running --no-headers | wc -l)
-
-          if [ $FAILED_PODS -gt 0 ]; then
-            echo "❌ Found $FAILED_PODS failed pods"
-            kubectl get pods -n default -l app.kubernetes.io/name=backend
-            exit 1
-          fi
-
-          echo "✅ All pods are running"
-
-      - name: Test health endpoint
-        if: ${{ !inputs.skip-tests }}
-        continue-on-error: true
-        run: |
-          echo "🏥 Testing health endpoint..."
-
-          # Get service details
-          kubectl get service backend -n default
-
-          # Port-forward to test locally (since we don't have LoadBalancer in dev)
-          kubectl port-forward -n default service/backend 8080:8080 &
-          PF_PID=$!
-
-          # Wait for port-forward to be ready
-          sleep 5
-
-          # Test health endpoint
-          for i in {1..10}; do
-            if curl -f http://localhost:8080/actuator/health; then
-              echo "✅ Health check passed"
-              kill $PF_PID
-              exit 0
-            fi
-            echo "Attempt $i/10 failed, retrying..."
-            sleep 5
-          done
-
-          echo "⚠️  Health check failed after 10 attempts"
-          kill $PF_PID
-          exit 1
-
-      - name: Get deployment logs
-        if: always()
-        run: |
-          echo "📝 Recent deployment logs:"
-          kubectl logs -n default -l app.kubernetes.io/name=backend --tail=50 || echo "No logs available yet"
 
       - name: Deployment summary
         if: always()

@@ -23,6 +23,7 @@ locals {
 inputs = {
   environment  = local.environment
   cluster_name = "tekmetric-${local.environment}"
+  github_actions_role_arn = "arn:aws:iam::${local.account_id}:role/GitHubActionsRole-${local.environment}"
 
   # Cluster version (from account.hcl)
   cluster_version = local.k8s_version

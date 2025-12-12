@@ -95,6 +95,12 @@ variable "eks_admin_group_name" {
   default     = "eks-cluster-admins"
 }
 
+variable "github_actions_role_arn" {
+  description = "ARN of the GitHub Actions IAM role for CI/CD deployments"
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "Additional tags for resources"
   type        = map(string)

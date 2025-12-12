@@ -400,5 +400,36 @@ resource "aws_eks_access_policy_association" "role_admin" {
   depends_on = [aws_eks_access_entry.role_admin]
 }
 
+# EKS Access Entry for GitHub Actions CI/CD
+resource "aws_eks_access_entry" "github_actions" {
+  count = var.github_actions_role_arn != "" ? 1 : 0
+
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = var.github_actions_role_arn
+  type          = "STANDARD"
+
+  tags = merge(
+    local.common_tags,
+    {
+      Name = "github-actions-cicd"
+    }
+  )
+}
+
+# Associate cluster admin policy with GitHub Actions role (for deployments)
+resource "aws_eks_access_policy_association" "github_actions" {
+  count = var.github_actions_role_arn != "" ? 1 : 0
+
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = var.github_actions_role_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.github_actions]
+}
+
 # Data source for current account
 data "aws_caller_identity" "current" {}
