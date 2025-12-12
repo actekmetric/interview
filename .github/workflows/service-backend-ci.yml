@@ -100,6 +100,23 @@ jobs:
           registry-username: ${{ github.actor }}
           registry-password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Save build metadata for CD
+        run: |
+          mkdir -p build-metadata
+          echo "${{ steps.version.outputs.version }}" > build-metadata/version.txt
+          echo "${{ steps.docker.outputs.image-ref }}" > build-metadata/image-ref.txt
+
+          echo "📝 Saved build metadata:"
+          cat build-metadata/version.txt
+          cat build-metadata/image-ref.txt
+
+      - name: Upload build metadata artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-metadata
+          path: build-metadata/
+          retention-days: 1
+
   publish-helm-chart:
     name: Publish Helm Chart
     runs-on: ubuntu-latest

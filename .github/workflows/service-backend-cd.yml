@@ -43,19 +43,41 @@ jobs:
       image-ref: ${{ steps.determine.outputs.image-ref }}
 
     steps:
-      - name: Download CI artifacts
+      - name: Download build metadata from CI
         if: github.event_name == 'workflow_run'
         uses: actions/github-script@v7
         with:
           script: |
-            // Get artifacts from the completed CI workflow
-            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+            const allArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              run_id: ${{ github.event.workflow_run.id }}
+              run_id: ${{ github.event.workflow_run.id }},
             });
 
-            console.log('Artifacts:', artifacts.data);
+            const matchArtifact = allArtifacts.data.artifacts.filter((artifact) => {
+              return artifact.name == "build-metadata"
+            })[0];
+
+            if (!matchArtifact) {
+              core.setFailed('build-metadata artifact not found');
+              return;
+            }
+
+            const download = await github.rest.actions.downloadArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: matchArtifact.id,
+              archive_format: 'zip',
+            });
+
+            const fs = require('fs');
+            fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/build-metadata.zip`, Buffer.from(download.data));
+
+      - name: Extract build metadata
+        if: github.event_name == 'workflow_run'
+        run: |
+          unzip build-metadata.zip -d build-metadata
+          ls -la build-metadata/
 
       - name: Determine deployment target
         id: determine
@@ -66,18 +88,18 @@ jobs:
             VERSION="${{ inputs.version }}"
             SHOULD_DEPLOY="true"
           else
-            # Automatic from CI - get version from workflow run
-            # For now, we'll get it from the commit message or workflow name
-            # In production, you'd pass this via artifacts or API
-
-            # Get the CI workflow run details
+            # Automatic from CI - get version from artifact
             WORKFLOW_ID="${{ github.event.workflow_run.id }}"
             echo "CI Workflow Run ID: ${WORKFLOW_ID}"
 
-            # Extract version from workflow run (placeholder - needs actual implementation)
-            # For now, let's assume SNAPSHOT for automatic triggers
-            VERSION="auto-SNAPSHOT"
+            # Read version and image-ref from artifact
+            VERSION=$(cat build-metadata/version.txt)
+            IMAGE_REF=$(cat build-metadata/image-ref.txt)
 
+            echo "📦 Version from CI: ${VERSION}"
+            echo "🖼️  Image from CI: ${IMAGE_REF}"
+
+            # Determine environment based on version pattern
             if [[ "$VERSION" == *"SNAPSHOT"* ]]; then
               ENV="dev"
               SHOULD_DEPLOY="true"
@@ -94,7 +116,10 @@ jobs:
             fi
           fi
 
-          IMAGE_REF="ghcr.io/${{ github.repository_owner }}/backend:${VERSION}"
+          # For manual dispatch, construct image-ref
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            IMAGE_REF="ghcr.io/${{ github.repository_owner }}/backend:${VERSION}"
+          fi
 
           echo "environment=${ENV}" >> $GITHUB_OUTPUT
           echo "version=${VERSION}" >> $GITHUB_OUTPUT

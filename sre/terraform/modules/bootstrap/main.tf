@@ -254,6 +254,7 @@ resource "aws_iam_role_policy" "github_actions" {
         Action = [
           "ec2:*",
           "eks:*",
+          "ecr:*",
           "elasticloadbalancing:*",
           "autoscaling:*",
           "cloudwatch:*",
@@ -332,7 +333,8 @@ resource "aws_iam_role_policy" "terraform_execution" {
           "cloudwatch:*",
           "logs:*",
           "iam:*",
-          "kms:*"
+          "kms:*",
+          "ecr:*"
         ]
         Resource = "*"
         Condition = {
