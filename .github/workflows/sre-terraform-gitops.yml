@@ -43,7 +43,8 @@ on:
           - 1-networking
           - 2-eks-cluster
           - 3-iam
-          - 4-eks-addons
+          - 4-ecr
+          - 5-eks-addons
         default: all
 
 concurrency:
@@ -88,7 +89,7 @@ jobs:
             #   /terraform plan dev 1-networking
             #   /terraform apply qa 3-iam
 
-            if [[ "$COMMENT" =~ ^/terraform[[:space:]]+(apply|plan)([[:space:]]+)?(dev|qa|prod)?([[:space:]]+)?(all|1-networking|2-eks-cluster|3-iam|4-eks-addons)?$ ]]; then
+            if [[ "$COMMENT" =~ ^/terraform[[:space:]]+(apply|plan)([[:space:]]+)?(dev|qa|prod)?([[:space:]]+)?(all|1-networking|2-eks-cluster|3-iam|4-ecr|5-eks-addons)?$ ]]; then
               ACTION="${BASH_REMATCH[1]}"
               ENV="${BASH_REMATCH[3]}"
               STAGE="${BASH_REMATCH[5]}"
@@ -115,6 +116,7 @@ jobs:
               echo "  /terraform apply dev all"
               echo "  /terraform plan dev 1-networking"
               echo "  /terraform apply qa 3-iam"
+              echo "  /terraform apply dev 4-ecr"
               exit 1
             fi
           else
