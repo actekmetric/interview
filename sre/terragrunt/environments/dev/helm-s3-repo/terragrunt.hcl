@@ -6,13 +6,6 @@ terraform {
   source = "${get_repo_root()}/sre/terraform/modules/helm-s3-repo"
 }
 
-dependency "iam" {
-  config_path = "../iam"
-  mock_outputs = {
-    github_actions_role_name = "GitHubActionsRole-dev"
-  }
-}
-
 locals {
   environment_vars = read_terragrunt_config(find_in_parent_folders("account.hcl"))
   region_vars      = read_terragrunt_config(find_in_parent_folders("region.hcl"))
@@ -25,7 +18,7 @@ locals {
 inputs = {
   bucket_name                        = "tekmetric-helm-charts-${local.environment}"
   environment                        = local.environment
-  github_actions_role_name           = dependency.iam.outputs.github_actions_role_name
+  github_actions_role_name           = "GitHubActionsRole-${local.environment}"
   noncurrent_version_expiration_days = 90
 
   tags = {
