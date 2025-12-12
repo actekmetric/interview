@@ -11,6 +11,9 @@ terraform {
 # Dependency on EKS module for IRSA
 dependency "eks_cluster" {
   config_path = "../eks-cluster"
+
+  # Skip outputs during destroy (when resources are already destroyed)
+  skip_outputs = true
 }
 
 locals {

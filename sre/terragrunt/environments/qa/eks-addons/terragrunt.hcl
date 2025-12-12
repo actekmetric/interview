@@ -11,11 +11,17 @@ terraform {
 # Dependency on EKS cluster (must exist before addons)
 dependency "eks_cluster" {
   config_path = "../eks-cluster"
+
+  # Skip outputs during destroy (when resources are already destroyed)
+  skip_outputs = true
 }
 
 # Dependency on IAM module for IRSA roles
 dependency "iam" {
   config_path = "../iam"
+
+  # Skip outputs during destroy (when resources are already destroyed)
+  skip_outputs = true
 }
 
 locals {
