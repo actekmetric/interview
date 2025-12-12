@@ -203,8 +203,6 @@ Actions → Destroy Environment → Select dev/qa → Type "destroy" → Run wor
 ```
 Complete teardown, 100% cost savings.
 
-**Note**: If you manually deleted resources (e.g., EKS cluster via AWS console), enable the "Ignore errors" option to continue past missing resources.
-
 📖 **For complete workflow documentation**, see [GitHub Workflows README](../.github/workflows/README.md)
 
 ## 📊 Cost Estimates

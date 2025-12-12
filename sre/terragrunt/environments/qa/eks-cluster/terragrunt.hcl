@@ -11,9 +11,6 @@ terraform {
 # Dependency on networking module
 dependency "networking" {
   config_path = "../networking"
-
-  # Skip outputs during destroy (when resources are already destroyed)
-  skip_outputs = true
 }
 
 

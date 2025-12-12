@@ -13,11 +13,6 @@ on:
       confirm:
         description: 'Type "destroy" to confirm'
         required: true
-      ignore_errors:
-        description: 'Continue if resources not found (use if manually deleted)'
-        required: false
-        type: boolean
-        default: false
 
 concurrency:
   group: environment-destroy-${{ inputs.environment }}
@@ -96,16 +91,7 @@ jobs:
         run: |
           cd sre/terragrunt/environments/${{ inputs.environment }}
           echo "🗑️ Destroying all infrastructure..."
-
-          # Build command with optional ignore errors flag
-          DESTROY_CMD="terragrunt run-all destroy --terragrunt-non-interactive"
-
-          if [[ "${{ inputs.ignore_errors }}" == "true" ]]; then
-            echo "⚠️ Ignore errors enabled - will continue past missing resources"
-            DESTROY_CMD="$DESTROY_CMD --terragrunt-ignore-dependency-errors"
-          fi
-
-          eval $DESTROY_CMD
+          terragrunt run-all destroy --terragrunt-non-interactive
 
       - name: Verify destruction
         run: |

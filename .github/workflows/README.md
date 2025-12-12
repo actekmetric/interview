@@ -91,42 +91,18 @@ The workflows are organized into two main categories:
 - Backs up Terraform state before destruction
 - Validates resources are destroyed after completion
 
-**Parameters**:
-- `environment`: Environment to destroy (dev or qa)
-- `confirm`: Must type "destroy" to proceed
-- `ignore_errors`: (Optional) Continue if resources not found - use this if you manually deleted resources via AWS console
-
 **Workflow Steps**:
 1. Validate environment (reject prod)
 2. Validate confirmation text
 3. Back up Terraform state to S3
-4. Run `terragrunt run-all destroy` (with optional `--terragrunt-ignore-dependency-errors` if ignore_errors=true)
+4. Run `terragrunt run-all destroy`
 5. Verify EKS cluster and VPC are destroyed
-
-**When to use ignore_errors**:
-- ✅ Resources were manually deleted via AWS console
-- ✅ Partial destroy failed and you want to clean up remaining resources
-- ❌ Normal destroy operations (leave unchecked for safety)
 
 **Usage**:
 ```bash
 # Via GitHub UI: Actions → Destroy Environment
 # Select: Environment (dev/qa)
 # Confirm: Type "destroy"
-# Ignore errors: Leave unchecked (default) - check only if resources manually deleted
-```
-
-**Example scenarios**:
-```bash
-# Normal destroy (safe mode - default)
-Environment: dev
-Confirm: destroy
-Ignore errors: ☐ (unchecked)
-
-# Cleanup after manual deletion
-Environment: dev
-Confirm: destroy
-Ignore errors: ☑ (checked) - continues past missing resources
 ```
 
 **What Gets Destroyed**:
