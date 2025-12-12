@@ -108,6 +108,14 @@ tekmetric-common-chart:
     runAsUser: 1000
     fsGroup: 1000
 
+  # Container security context
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false  # Spring Boot needs write access for temp files
+    capabilities:
+      drop:
+        - ALL
+
   # Pod annotations
   podAnnotations:
     prometheus.io/scrape: "true"
