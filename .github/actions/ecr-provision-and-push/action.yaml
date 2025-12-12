@@ -106,28 +106,33 @@ runs:
         echo "📝 Creating dynamic ECR configuration..."
 
         ECR_DIR="sre/terragrunt/environments/${{ inputs.environment }}/ecr-dynamic"
+        REPO_NAME="${{ inputs.repository-name }}"
+        IMAGE_MUTABILITY="${{ inputs.image-tag-mutability }}"
+        MAX_IMAGES="${{ inputs.max-image-count }}"
+        EXPIRE_DAYS="${{ inputs.untagged-expire-days }}"
+
         mkdir -p "${ECR_DIR}"
 
-        cat > "${ECR_DIR}/terragrunt.hcl" <<'HCLEOF'
+        cat > "${ECR_DIR}/terragrunt.hcl" <<HCLEOF
         include "root" {
           path = find_in_parent_folders()
         }
 
         terraform {
-          source = "${get_repo_root()}/sre/terraform/modules/ecr"
+          source = "\${get_repo_root()}/sre/terraform/modules/ecr"
         }
 
         # Override the remote state key to be unique per repository
         generate "backend_override" {
           path      = "backend_override.tf"
           if_exists = "overwrite"
-          contents  = <<EOF
+          contents  = <<BACKENDEOF
 terraform {
   backend "s3" {
-    key = "${path_relative_to_include()}/ecr-${{ inputs.repository-name }}/terraform.tfstate"
+    key = "\${path_relative_to_include()}/ecr-${REPO_NAME}/terraform.tfstate"
   }
 }
-EOF
+BACKENDEOF
         }
 
         locals {
@@ -141,27 +146,27 @@ EOF
 
         inputs = {
           repository_names = [
-            "${{ inputs.repository-name }}",
+            "${REPO_NAME}",
           ]
 
-          image_tag_mutability  = "${{ inputs.image-tag-mutability }}"
+          image_tag_mutability  = "${IMAGE_MUTABILITY}"
           scan_on_push         = true
-          max_image_count      = ${{ inputs.max-image-count }}
-          untagged_expire_days = ${{ inputs.untagged-expire-days }}
+          max_image_count      = ${MAX_IMAGES}
+          untagged_expire_days = ${EXPIRE_DAYS}
 
           github_actions_role_arns = [
-            "arn:aws:iam::${local.account_id}:role/GitHubActionsRole-${local.environment}"
+            "arn:aws:iam::\${local.account_id}:role/GitHubActionsRole-\${local.environment}"
           ]
 
           tags = {
             Environment = local.environment
             ManagedBy   = "GitHub-Actions"
             Component   = "ECR"
-            Service     = "${{ inputs.repository-name }}"
+            Service     = "${REPO_NAME}"
             region      = local.region
           }
         }
-        HCLEOF
+HCLEOF
 
         echo "✅ Dynamic config created at ${ECR_DIR}/terragrunt.hcl"
 
