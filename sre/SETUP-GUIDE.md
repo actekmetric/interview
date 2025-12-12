@@ -303,9 +303,8 @@ aws s3 ls s3://tekmetric-terraform-state-us-east-1-123456789012/bootstrap/ --pro
 # Clean up local state files
 rm -f terraform.tfstate terraform.tfstate.backup
 
-# ⚠️ IMPORTANT: Never commit terraform.tfstate files to git
-echo "*.tfstate" >> .gitignore
-echo "*.tfstate.backup" >> .gitignore
+# ✅ State files are already in .gitignore (repository root)
+# The backend.tf file you created IS safe to commit to git
 ```
 
 ### Step 2.4: Bootstrap QA and Prod

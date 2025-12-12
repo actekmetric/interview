@@ -2,7 +2,7 @@
 
 locals {
   environment = "dev"
-  account_id  = "096610237522"  # TODO: Replace with actual dev AWS account ID
+  account_id  = "596308305263"  # TODO: Replace with actual dev AWS account ID
 
   # Kubernetes version
   k8s_version = "1.34"
