@@ -1,4 +1,4 @@
-name: Backend Service CI/CD
+name: Backend Service CI
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     paths:
       - 'backend/**'
       - 'sre/helm/backend/**'
-      - '.github/workflows/service-backend-workflow.yml'
+      - '.github/workflows/service-backend-ci.yml'
 
   pull_request:
     branches:
@@ -17,7 +17,7 @@ on:
     paths:
       - 'backend/**'
       - 'sre/helm/backend/**'
-      - '.github/workflows/service-backend-workflow.yml'
+      - '.github/workflows/service-backend-ci.yml'
 
   workflow_dispatch:
 
