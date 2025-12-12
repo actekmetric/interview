@@ -517,36 +517,72 @@ Repeat Step 4.1 for QA and Prod environments using the same staged approach.
 
 ## Phase 5: Access Management
 
-### Step 5.1: Add Users to EKS Admin Group
+### Step 5.1: Configure EKS Access
 
-The infrastructure creates IAM groups for EKS access. Add your team members:
+The EKS cluster creates an IAM role (`tekmetric-dev-admins-role`) that's mapped to Kubernetes `system:masters` group for full cluster access.
+
+There are **two ways** to access EKS depending on your setup:
+
+#### Option A: Using Switch Role from Management Account (Recommended for Your Setup)
+
+**When to use:** You're accessing sub-accounts via "Switch Role" from the management account.
 
 ```bash
-# Create IAM user (if they don't exist)
-aws iam create-user --user-name john.doe --profile dev
-
-# Add user to EKS admin group
-aws iam add-user-to-group \
-  --user-name john.doe \
-  --group-name eks-dev-admins \
+# From your management account (as IAM admin user)
+# Configure kubectl to use the EKS admin role
+aws eks update-kubeconfig \
+  --name tekmetric-dev \
+  --region us-east-1 \
+  --role-arn arn:aws:iam::123456789012:role/tekmetric-dev-admins-role \
   --profile dev
 
-# User can now access the cluster by assuming the role
+# Verify access
+kubectl get nodes
+kubectl get pods -A
+
+# Your kubeconfig now uses:
+# 1. AWS profile "dev" (which assumes OrganizationAccountAccessRole)
+# 2. Then assumes tekmetric-dev-admins-role for EKS access
 ```
 
-### Step 5.2: User Access Instructions
+**How it works:**
+```
+Management Account IAM Admin User
+    ↓ (uses profile "dev")
+Assumes OrganizationAccountAccessRole in sub-account
+    ↓ (with --role-arn)
+Assumes tekmetric-dev-admins-role
+    ↓
+Gets Kubernetes system:masters access
+```
 
-Send this to users who need EKS access:
+#### Option B: Using IAM Users Directly in Sub-Account
 
+**When to use:** You have IAM users created directly in the dev sub-account.
+
+**Step 1: Create IAM user in sub-account and add to group**
 ```bash
-# Configure AWS CLI profile with role assumption
-cat >> ~/.aws/config << 'EOF'
+# Switch to dev account
+# In AWS Console: Switch Role to dev account
 
+# Create IAM user
+AWS_PROFILE=dev aws iam create-user --user-name john.doe
+
+# Add to EKS admin group
+AWS_PROFILE=dev aws iam add-user-to-group \
+  --user-name john.doe \
+  --group-name eks-dev-admins
+
+# User can now assume the tekmetric-dev-admins-role
+```
+
+**Step 2: User configures their access**
+```bash
+# User's ~/.aws/config
 [profile dev-eks]
 role_arn = arn:aws:iam::123456789012:role/tekmetric-dev-admins-role
-source_profile = default
+source_profile = default  # Their IAM user credentials
 region = us-east-1
-EOF
 
 # Get EKS credentials
 aws eks update-kubeconfig \
@@ -554,9 +590,21 @@ aws eks update-kubeconfig \
   --region us-east-1 \
   --profile dev-eks
 
-# Verify access
+# Verify
 kubectl get nodes
 ```
+
+### Step 5.2: For Additional Team Members
+
+**If using Option A (Switch Role):**
+- No additional setup needed in the sub-account
+- Team members just need access to management account
+- They follow the same `aws eks update-kubeconfig` command
+
+**If using Option B (IAM Users):**
+1. Create IAM user in sub-account for each team member
+2. Add them to `eks-dev-admins` group
+3. Send them the access instructions above
 
 ---
 
