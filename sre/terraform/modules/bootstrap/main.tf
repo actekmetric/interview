@@ -334,7 +334,8 @@ resource "aws_iam_role_policy" "terraform_execution" {
           "logs:*",
           "iam:*",
           "kms:*",
-          "ecr:*"
+          "ecr:*",
+          "s3:*"
         ]
         Resource = "*"
         Condition = {
