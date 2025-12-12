@@ -117,6 +117,19 @@ runs:
           source = "${get_repo_root()}/sre/terraform/modules/ecr"
         }
 
+        # Override the remote state key to be unique per repository
+        generate "backend_override" {
+          path      = "backend_override.tf"
+          if_exists = "overwrite"
+          contents  = <<EOF
+terraform {
+  backend "s3" {
+    key = "${path_relative_to_include()}/ecr-${{ inputs.repository-name }}/terraform.tfstate"
+  }
+}
+EOF
+        }
+
         locals {
           environment_vars = read_terragrunt_config(find_in_parent_folders("account.hcl"))
           region_vars      = read_terragrunt_config(find_in_parent_folders("region.hcl"))
