@@ -434,7 +434,7 @@ kubectl get pods -A
 - [Terragrunt Documentation](https://terragrunt.gruntwork.io/)
 - [EKS Best Practices](https://aws.github.io/aws-eks-best-practices/)
 - [GitHub OIDC with AWS](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services)
-- [Helm Chart Repository](../helm/README.md)
+- [Helm Chart Publishing](../.github/workflows/README.md#6--common-helm-chart-sre-helm-common-chartyml) - See workflow documentation
 
 ## 📞 Support
 
