@@ -1,0 +1,202 @@
+name: 'Helm Deploy'
+description: 'Deploys Helm charts from S3 repository to EKS cluster'
+
+inputs:
+  cluster-name:
+    description: 'EKS cluster name (e.g., tekmetric-dev)'
+    required: true
+  aws-region:
+    description: 'AWS region where EKS cluster is located'
+    required: false
+    default: 'us-east-1'
+  release-name:
+    description: 'Helm release name (e.g., backend)'
+    required: true
+  chart-name:
+    description: 'Chart name in repository (e.g., backend-service)'
+    required: true
+  chart-repo-type:
+    description: 'Repository type: s3 or http'
+    required: false
+    default: 's3'
+  chart-repo-url:
+    description: 'Chart repository URL (e.g., s3://bucket/charts or https://charts.example.com)'
+    required: true
+  chart-repo-name:
+    description: 'Local name for the chart repository'
+    required: false
+    default: 'deployment-repo'
+  namespace:
+    description: 'Kubernetes namespace for deployment'
+    required: false
+    default: 'default'
+  values-file:
+    description: 'Path to values file (e.g., sre/helm/backend/values-dev.yaml)'
+    required: false
+    default: ''
+  image-repository:
+    description: 'Docker image repository (e.g., ACCOUNT.dkr.ecr.us-east-1.amazonaws.com)'
+    required: true
+  image-name:
+    description: 'Docker image name (e.g., backend)'
+    required: true
+  image-tag:
+    description: 'Docker image tag'
+    required: true
+  image-pull-policy:
+    description: 'Image pull policy (Always, IfNotPresent, Never)'
+    required: false
+    default: 'Always'
+  timeout:
+    description: 'Timeout for helm upgrade (e.g., 10m)'
+    required: false
+    default: '10m'
+  atomic:
+    description: 'Enable atomic flag (rollback on failure)'
+    required: false
+    default: 'true'
+  wait:
+    description: 'Wait for resources to be ready'
+    required: false
+    default: 'true'
+  extra-set-values:
+    description: 'Additional --set values (one per line, e.g., "key1=value1")'
+    required: false
+    default: ''
+
+outputs:
+  release-name:
+    description: 'Helm release name'
+    value: ${{ steps.deploy.outputs.release-name }}
+  release-status:
+    description: 'Release deployment status'
+    value: ${{ steps.deploy.outputs.status }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Configure EKS access
+      shell: bash
+      run: |
+        echo "🔧 Configuring EKS access..."
+        aws eks update-kubeconfig \
+          --name ${{ inputs.cluster-name }} \
+          --region ${{ inputs.aws-region }}
+        echo "✅ EKS access configured"
+
+    - name: Install helm-s3 plugin
+      if: inputs.chart-repo-type == 's3'
+      shell: bash
+      run: |
+        echo "📦 Installing helm-s3 plugin..."
+        helm plugin install https://github.com/hypnoglow/helm-s3.git --version 0.16.0 || echo "Plugin already installed"
+        helm plugin list
+
+    - name: Add Helm repository
+      shell: bash
+      run: |
+        REPO_NAME="${{ inputs.chart-repo-name }}"
+        REPO_URL="${{ inputs.chart-repo-url }}"
+
+        echo "📦 Adding Helm repository: ${REPO_URL}"
+
+        # Remove existing repo if present
+        helm repo remove ${REPO_NAME} 2>/dev/null || true
+
+        # Add repository
+        helm repo add ${REPO_NAME} ${REPO_URL}
+        helm repo update ${REPO_NAME}
+
+        echo "✅ Helm repository added"
+        helm search repo ${REPO_NAME} --versions | head -10
+
+    - name: Verify chart availability
+      shell: bash
+      run: |
+        REPO_NAME="${{ inputs.chart-repo-name }}"
+        CHART_NAME="${{ inputs.chart-name }}"
+
+        echo "🔍 Verifying chart availability..."
+        if ! helm search repo ${REPO_NAME}/${CHART_NAME} --versions | grep -q ${CHART_NAME}; then
+          echo "❌ ERROR: Chart ${CHART_NAME} not found in repository ${REPO_NAME}"
+          echo "Available charts:"
+          helm search repo ${REPO_NAME} || true
+
+          if [[ "${{ inputs.chart-repo-type }}" == "s3" ]]; then
+            echo "Checking S3 bucket contents..."
+            aws s3 ls ${{ inputs.chart-repo-url }}/ --recursive || true
+          fi
+          exit 1
+        fi
+        echo "✅ Chart ${CHART_NAME} is available"
+
+    - name: Deploy with Helm
+      id: deploy
+      shell: bash
+      run: |
+        echo "🚀 Deploying Helm release..."
+
+        RELEASE_NAME="${{ inputs.release-name }}"
+        NAMESPACE="${{ inputs.namespace }}"
+        CHART="${{ inputs.chart-repo-name }}/${{ inputs.chart-name }}"
+
+        # Build helm upgrade command
+        HELM_CMD="helm upgrade --install ${RELEASE_NAME} ${CHART}"
+        HELM_CMD="${HELM_CMD} --namespace ${NAMESPACE}"
+        HELM_CMD="${HELM_CMD} --create-namespace"
+
+        # Image configuration
+        HELM_CMD="${HELM_CMD} --set tekmetric-common-chart.image.repository=${{ inputs.image-repository }}"
+        HELM_CMD="${HELM_CMD} --set tekmetric-common-chart.image.name=${{ inputs.image-name }}"
+        HELM_CMD="${HELM_CMD} --set tekmetric-common-chart.image.tag=${{ inputs.image-tag }}"
+        HELM_CMD="${HELM_CMD} --set tekmetric-common-chart.image.pullPolicy=${{ inputs.image-pull-policy }}"
+
+        # Values file
+        if [[ -n "${{ inputs.values-file }}" ]]; then
+          HELM_CMD="${HELM_CMD} --values ${{ inputs.values-file }}"
+        fi
+
+        # Extra set values
+        while IFS= read -r line; do
+          if [[ -n "$line" ]]; then
+            HELM_CMD="${HELM_CMD} --set ${line}"
+          fi
+        done <<< "${{ inputs.extra-set-values }}"
+
+        # Flags
+        if [[ "${{ inputs.wait }}" == "true" ]]; then
+          HELM_CMD="${HELM_CMD} --wait"
+        fi
+
+        if [[ "${{ inputs.atomic }}" == "true" ]]; then
+          HELM_CMD="${HELM_CMD} --atomic"
+        fi
+
+        HELM_CMD="${HELM_CMD} --timeout ${{ inputs.timeout }}"
+        HELM_CMD="${HELM_CMD} --cleanup-on-fail"
+
+        echo "📝 Running: ${HELM_CMD}"
+        eval ${HELM_CMD}
+
+        echo "✅ Helm deployment completed successfully"
+        echo "release-name=${RELEASE_NAME}" >> $GITHUB_OUTPUT
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Deployment summary
+      if: always()
+      shell: bash
+      run: |
+        echo "## 🚀 Helm Deployment" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Release:** \`${{ inputs.release-name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Namespace:** \`${{ inputs.namespace }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Chart:** \`${{ inputs.chart-repo-name }}/${{ inputs.chart-name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Image:** \`${{ inputs.image-repository }}/${{ inputs.image-name }}:${{ inputs.image-tag }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Cluster:** \`${{ inputs.cluster-name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        if [[ "${{ steps.deploy.outcome }}" == "success" ]]; then
+          echo "✅ **Status:** Deployed successfully" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Status:** Deployment failed" >> $GITHUB_STEP_SUMMARY
+        fi
