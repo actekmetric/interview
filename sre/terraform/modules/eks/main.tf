@@ -329,9 +329,10 @@ resource "aws_iam_role" "eks_admins" {
         AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
       }
       Action = "sts:AssumeRole"
+      # Allow both IAM Users and AssumedRoles (for switch role access)
       Condition = {
-        StringEquals = {
-          "aws:PrincipalType" = "User"
+        StringLike = {
+          "aws:PrincipalType" = ["User", "AssumedRole"]
         }
       }
     }]
