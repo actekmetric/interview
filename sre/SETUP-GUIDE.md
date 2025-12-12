@@ -224,14 +224,20 @@ aws sts get-caller-identity --profile dev
 
 ### Step 2.2: Bootstrap Dev Account
 
+**⚠️ IMPORTANT: Always use `AWS_PROFILE=dev` prefix to ensure commands run in the dev account!**
+
 ```bash
 cd sre/terraform/modules/bootstrap
 
 # Initialize Terraform (uses LOCAL state for first run)
 terraform init
 
+# Verify you're targeting the correct account
+AWS_PROFILE=dev aws sts get-caller-identity
+# Should show dev account ID: 123456789012
+
 # Plan the bootstrap
-terraform plan \
+AWS_PROFILE=dev terraform plan \
   -var="environment=dev" \
   -var="account_id=123456789012" \
   -var="region=us-east-1" \
@@ -258,10 +264,10 @@ AWS_PROFILE=dev terraform apply \
 **Important Outputs - Save These:**
 ```bash
 # Copy these outputs, you'll need them later
-terraform output github_actions_role_arn
+AWS_PROFILE=dev terraform output github_actions_role_arn
 # Output: arn:aws:iam::123456789012:role/GitHubActionsRole-dev
 
-terraform output state_bucket_name
+AWS_PROFILE=dev terraform output state_bucket_name
 # Output: tekmetric-terraform-state-123456789012
 ```
 
@@ -306,8 +312,16 @@ echo "*.tfstate.backup" >> .gitignore
 
 Repeat Steps 2.2 and 2.3 for QA and Prod:
 
+**QA Account:**
 ```bash
-# QA Account
+# Verify targeting QA account
+AWS_PROFILE=qa aws sts get-caller-identity
+
+# Clean up previous state files
+rm -f terraform.tfstate* backend.tf
+
+# Bootstrap QA
+AWS_PROFILE=qa terraform init
 AWS_PROFILE=qa terraform apply \
   -var="environment=qa" \
   -var="account_id=234567890123" \
@@ -316,9 +330,33 @@ AWS_PROFILE=qa terraform apply \
   -var="github_repo=your-repo-name" \
   -var="enable_github_oidc=true"
 
-# Migrate QA state (update bucket name in backend.tf first)
+# Migrate QA state to S3
+cat > backend.tf << 'EOF'
+terraform {
+  backend "s3" {
+    bucket         = "tekmetric-terraform-state-234567890123"
+    key            = "bootstrap/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "tekmetric-terraform-locks-234567890123"
+    encrypt        = true
+  }
+}
+EOF
 
-# Prod Account
+AWS_PROFILE=qa terraform init -migrate-state
+rm -f terraform.tfstate*
+```
+
+**Prod Account:**
+```bash
+# Verify targeting Prod account
+AWS_PROFILE=prod aws sts get-caller-identity
+
+# Clean up previous state files
+rm -f terraform.tfstate* backend.tf
+
+# Bootstrap Prod
+AWS_PROFILE=prod terraform init
 AWS_PROFILE=prod terraform apply \
   -var="environment=prod" \
   -var="account_id=345678901234" \
@@ -327,7 +365,21 @@ AWS_PROFILE=prod terraform apply \
   -var="github_repo=your-repo-name" \
   -var="enable_github_oidc=true"
 
-# Migrate prod state (update bucket name in backend.tf first)
+# Migrate Prod state to S3
+cat > backend.tf << 'EOF'
+terraform {
+  backend "s3" {
+    bucket         = "tekmetric-terraform-state-345678901234"
+    key            = "bootstrap/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "tekmetric-terraform-locks-345678901234"
+    encrypt        = true
+  }
+}
+EOF
+
+AWS_PROFILE=prod terraform init -migrate-state
+rm -f terraform.tfstate*
 ```
 
 ---
