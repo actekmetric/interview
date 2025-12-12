@@ -163,8 +163,9 @@ jobs:
 
           echo "🔧 Initializing S3 Helm repository..."
 
-          # Initialize creates index.yaml if it doesn't exist
-          helm s3 init ${REPO_PATH} || echo "✅ Repository already initialized"
+          # Initialize creates index.yaml if it doesn't exist (ignore if already exists)
+          helm s3 init --ignore-if-exists ${REPO_PATH}
+          echo "✅ Repository ready"
 
       - name: Download Helm chart dependencies
         run: |
@@ -186,15 +187,20 @@ jobs:
           BUCKET_NAME="tekmetric-helm-charts-dev"
           REPO_PATH="s3://${BUCKET_NAME}/charts"
           REPO_NAME="tekmetric-s3"
-          VERSION="${{ needs.build-and-test.outputs.version }}"
+          APP_VERSION="${{ needs.build-and-test.outputs.version }}"
+
+          # Get chart version from Chart.yaml (semantic versioning)
+          CHART_VERSION=$(grep '^version:' sre/helm/backend/Chart.yaml | awk '{print $2}')
 
           echo "📦 Packaging Helm chart..."
+          echo "   Chart version: ${CHART_VERSION}"
+          echo "   App version: ${APP_VERSION}"
+
           helm package sre/helm/backend \
-            --version ${VERSION} \
-            --app-version ${VERSION}
+            --app-version ${APP_VERSION}
 
           echo "📤 Pushing chart to S3..."
-          CHART_FILE="backend-service-${VERSION}.tgz"
+          CHART_FILE="backend-service-${CHART_VERSION}.tgz"
           helm s3 push ${CHART_FILE} ${REPO_NAME} --force
 
           echo "✅ Chart pushed to ${REPO_PATH}"

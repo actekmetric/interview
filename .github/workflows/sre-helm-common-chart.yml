@@ -84,7 +84,8 @@ jobs:
           REPO_PATH="s3://${BUCKET_NAME}/charts"
 
           echo "🔧 Initializing S3 Helm repository..."
-          helm s3 init ${REPO_PATH} || echo "✅ Repository already initialized"
+          helm s3 init --ignore-if-exists ${REPO_PATH}
+          echo "✅ Repository ready"
 
       - name: Package and Push Common Chart to S3
         run: |
