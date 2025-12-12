@@ -8,4 +8,4 @@ appVersion: "1.0-SNAPSHOT"
 dependencies:
   - name: tekmetric-common-chart
     version: "0.1.2"
-    repository: "https://actekmetric.github.io/interview/"
+    repository: "s3://tekmetric-helm-charts-dev/charts"

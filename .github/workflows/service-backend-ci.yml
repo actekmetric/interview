@@ -81,31 +81,20 @@ jobs:
           account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
           aws-region: us-east-1
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        run: |
-          echo "🔐 Logging in to Amazon ECR..."
-          aws ecr get-login-password --region us-east-1 | \
-            docker login --username AWS --password-stdin \
-            ${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
-          echo "✅ Logged in to ECR"
-
       - name: Build and Push Docker Image to ECR
         id: docker
         uses: ./.github/actions/docker-build-push
         with:
           context: ./backend
           dockerfile: docker/Dockerfile
-          # On PRs: single platform for local scanning
-          # On push/workflow_dispatch: multi-platform for registry
           platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           registry: ${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+          registry-type: ecr
+          aws-region: us-east-1
           image-name: backend
           image-tag: ${{ steps.version.outputs.version }}
           push: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
           tag-latest: false
-          registry-username: AWS
-          registry-password: ${{ steps.login-ecr.outputs.password }}
 
       - name: Scan Docker Image for Vulnerabilities
         if: github.event_name == 'pull_request'
@@ -177,6 +166,21 @@ jobs:
           # Initialize creates index.yaml if it doesn't exist
           helm s3 init ${REPO_PATH} || echo "✅ Repository already initialized"
 
+      - name: Download Helm chart dependencies
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+          REPO_NAME="tekmetric-s3"
+
+          echo "📥 Adding S3 repo for dependencies..."
+          helm repo add ${REPO_NAME} ${REPO_PATH}
+          helm repo update ${REPO_NAME}
+
+          echo "📥 Downloading chart dependencies..."
+          cd sre/helm/backend
+          helm dependency update
+          ls -la charts/
+
       - name: Package and Push Helm chart to S3
         run: |
           BUCKET_NAME="tekmetric-helm-charts-dev"
@@ -188,9 +192,6 @@ jobs:
           helm package sre/helm/backend \
             --version ${VERSION} \
             --app-version ${VERSION}
-
-          echo "📤 Adding S3 repo..."
-          helm repo add ${REPO_NAME} ${REPO_PATH}
 
           echo "📤 Pushing chart to S3..."
           CHART_FILE="backend-service-${VERSION}.tgz"

@@ -18,12 +18,12 @@ concurrency:
 
 jobs:
   publish-helm-chart:
-    name: Publish Common Helm Chart
+    name: Publish Common Helm Chart to S3
     runs-on: ubuntu-latest
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
     permissions:
-      contents: write
-      pages: write
+      id-token: write
+      contents: read
     outputs:
       chart-version: ${{ steps.get-version.outputs.version }}
       chart-name: ${{ steps.get-version.outputs.name }}
@@ -31,13 +31,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Configure Git
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
 
       - name: Install Helm
         uses: azure/setup-helm@v3
@@ -71,29 +64,70 @@ jobs:
           helm template test-release sre/helm/common/charts/tekmetric-common-chart --dry-run > /dev/null
           echo "✅ Helm chart templates are valid"
 
-      - name: Run chart-releaser
-        uses: helm/chart-releaser-action@v1.6.0
+      - name: Configure AWS credentials
+        uses: ./.github/actions/aws-assume-role
         with:
-          charts_dir: sre/helm/common/charts
-        env:
-          CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CR_SKIP_EXISTING: true
+          environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
+          aws-region: us-east-1
+
+      - name: Install helm-s3 plugin
+        run: |
+          echo "📦 Installing helm-s3 plugin..."
+          helm plugin install https://github.com/hypnoglow/helm-s3.git --version 0.16.0
+          helm plugin list
+
+      - name: Initialize S3 Helm repository
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+
+          echo "🔧 Initializing S3 Helm repository..."
+          helm s3 init ${REPO_PATH} || echo "✅ Repository already initialized"
+
+      - name: Package and Push Common Chart to S3
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+          REPO_NAME="tekmetric-s3"
+          CHART_NAME="${{ steps.get-version.outputs.name }}"
+          CHART_VERSION="${{ steps.get-version.outputs.version }}"
+
+          echo "📦 Packaging Helm chart..."
+          helm package sre/helm/common/charts/tekmetric-common-chart \
+            --version ${CHART_VERSION} \
+            --app-version ${{ steps.get-version.outputs.app-version }}
+
+          echo "📤 Adding S3 repo..."
+          helm repo add ${REPO_NAME} ${REPO_PATH}
+
+          echo "📤 Pushing chart to S3..."
+          CHART_FILE="${CHART_NAME}-${CHART_VERSION}.tgz"
+          helm s3 push ${CHART_FILE} ${REPO_NAME} --force
+
+          echo "✅ Chart pushed to ${REPO_PATH}"
+
+          # Verify
+          echo "🔍 Verifying chart availability..."
+          helm repo update ${REPO_NAME}
+          helm search repo ${REPO_NAME}/${CHART_NAME} --versions | head -5
 
       - name: Summary
         run: |
-          echo "## 📦 Common Helm Chart Published" >> $GITHUB_STEP_SUMMARY
+          echo "## 📦 Common Helm Chart Published to S3" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Chart Name:** \`${{ steps.get-version.outputs.name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Chart Version:** \`${{ steps.get-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**App Version:** \`${{ steps.get-version.outputs.app-version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Repository:** https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** \`s3://tekmetric-helm-charts-dev/charts\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📥 Add as Dependency" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`yaml" >> $GITHUB_STEP_SUMMARY
           echo "dependencies:" >> $GITHUB_STEP_SUMMARY
           echo "  - name: ${{ steps.get-version.outputs.name }}" >> $GITHUB_STEP_SUMMARY
           echo "    version: \"${{ steps.get-version.outputs.version }}\"" >> $GITHUB_STEP_SUMMARY
-          echo "    repository: \"https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/\"" >> $GITHUB_STEP_SUMMARY
+          echo "    repository: \"s3://tekmetric-helm-charts-dev/charts\"" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   workflow-summary:

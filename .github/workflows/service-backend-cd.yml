@@ -156,76 +156,26 @@ jobs:
           account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
           aws-region: us-east-1
 
-      - name: Configure EKS access for Helm
-        run: |
-          echo "🔧 Configuring EKS access..."
-
-          # Update kubeconfig WITHOUT assuming admin role
-          # Uses GitHubActionsRole-dev credentials that are already configured
-          aws eks update-kubeconfig \
-            --name tekmetric-dev \
-            --region us-east-1
-
-          echo "✅ EKS access configured"
-
-      - name: Install helm-s3 plugin
-        run: |
-          echo "📦 Installing helm-s3 plugin..."
-          helm plugin install https://github.com/hypnoglow/helm-s3.git --version 0.16.0
-          helm plugin list
-
-      - name: Add S3 Helm repository
-        run: |
-          BUCKET_NAME="tekmetric-helm-charts-dev"
-          REPO_PATH="s3://${BUCKET_NAME}/charts"
-          REPO_NAME="tekmetric-s3"
-
-          echo "📦 Adding S3 Helm repository..."
-          helm repo add ${REPO_NAME} ${REPO_PATH}
-          helm repo update ${REPO_NAME}
-
-          echo "✅ Helm repository added and updated"
-          echo "📋 Available charts:"
-          helm search repo ${REPO_NAME} --versions | head -20
-
-          # Verify backend-service chart is available
-          if ! helm search repo ${REPO_NAME}/backend-service --versions | grep -q backend-service; then
-            echo "❌ ERROR: backend-service chart not found in S3 repository"
-            echo "Checking S3 bucket contents..."
-            aws s3 ls ${REPO_PATH}/ --recursive || true
-            exit 1
-          fi
-
-          echo "✅ backend-service chart is available"
-
       - name: Deploy to EKS with Helm
         id: helm-deploy
-        run: |
-          echo "🚀 Deploying backend service to EKS..."
-
-          RELEASE_NAME="backend"
-          NAMESPACE="default"
-          CHART="tekmetric-s3/backend-service"
-          IMAGE_TAG="${{ needs.determine-environment.outputs.version }}"
-          ECR_REGISTRY="${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com"
-
-          # Image is already in ECR from CI workflow
-          # Helm chart pulled from S3, image pulled from ECR
-          helm upgrade --install ${RELEASE_NAME} ${CHART} \
-            --namespace ${NAMESPACE} \
-            --create-namespace \
-            --set tekmetric-common-chart.image.repository=${ECR_REGISTRY} \
-            --set tekmetric-common-chart.image.name=backend \
-            --set tekmetric-common-chart.image.tag=${IMAGE_TAG} \
-            --set tekmetric-common-chart.image.pullPolicy=Always \
-            --values sre/helm/backend/values-dev.yaml \
-            --wait \
-            --timeout 10m \
-            --atomic \
-            --cleanup-on-fail
-
-          echo "✅ Helm deployment completed successfully"
-          echo "deployment-name=${RELEASE_NAME}" >> $GITHUB_OUTPUT
+        uses: ./.github/actions/helm-deploy
+        with:
+          cluster-name: tekmetric-dev
+          aws-region: us-east-1
+          release-name: backend
+          chart-name: backend-service
+          chart-repo-type: s3
+          chart-repo-url: s3://tekmetric-helm-charts-dev/charts
+          chart-repo-name: tekmetric-s3
+          namespace: default
+          values-file: sre/helm/backend/values-dev.yaml
+          image-repository: ${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+          image-name: backend
+          image-tag: ${{ needs.determine-environment.outputs.version }}
+          image-pull-policy: Always
+          timeout: 10m
+          atomic: true
+          wait: true
 
       - name: Deployment summary
         if: always()
