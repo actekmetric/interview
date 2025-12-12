@@ -28,8 +28,12 @@ imagePullSecrets: []
 
 # Service account configuration
 serviceAccount:
-  # Service account name to use
+  # Whether to create a service account
+  create: false
+  # Service account name to use (defaults to fullname if not specified)
   name: ""
+  # Annotations to add to the service account
+  annotations: {}
 
 # Pod security context
 podSecurityContext: {}

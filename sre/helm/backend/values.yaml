@@ -20,7 +20,6 @@ tekmetric-common-chart:
   service:
     type: ClusterIP
     port: 8080
-    targetPort: 8080
     managementPort: null
     annotations: {}
     additionalPorts: []
@@ -87,7 +86,6 @@ tekmetric-common-chart:
       enabled: false
       endpoint: "http://otel-collector:4318"
       protocol: "http/protobuf"
-      serviceName: "backend-service"
 
   # Environment variables for the application
   env:
@@ -103,8 +101,8 @@ tekmetric-common-chart:
     enabled: true
     options: "-Xms256m -Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
 
-  # Security context
-  securityContext:
+  # Pod security context
+  podSecurityContext:
     runAsNonRoot: true
     runAsUser: 1000
     fsGroup: 1000
@@ -120,14 +118,6 @@ tekmetric-common-chart:
 
   # Affinity rules for pod scheduling
   affinity:
-    podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          podAffinityTerm:
-            labelSelector:
-              matchExpressions:
-                - key: app.kubernetes.io/name
-                  operator: In
-                  values:
-                    - backend
-            topologyKey: kubernetes.io/hostname
+    enabled: true
+    type: soft
+    topologyKey: kubernetes.io/hostname

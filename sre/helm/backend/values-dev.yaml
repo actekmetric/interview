@@ -15,7 +15,6 @@ tekmetric-common-chart:
   service:
     type: ClusterIP
     port: 8080
-    targetPort: 8080
     managementPort: null
     annotations: {}
 
@@ -88,7 +87,6 @@ tekmetric-common-chart:
       enabled: false  # Enable when OTEL collector is deployed
       endpoint: "http://otel-collector.observability.svc.cluster.local:4318"
       protocol: "http/protobuf"
-      serviceName: "backend-service"
 
   # Environment variables
   env:
@@ -98,20 +96,17 @@ tekmetric-common-chart:
       value: "8080"
     - name: MANAGEMENT_SERVER_PORT
       value: "8080"
-    - name: JAVA_OPTS
-      value: "-Xms128m -Xmx256m -XX:+UseG1GC"
 
   # JVM configuration
   jvm:
     enabled: true
     options: "-Xms128m -Xmx256m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
 
-  # Security context
-  securityContext:
+  # Pod security context
+  podSecurityContext:
     runAsNonRoot: true
     runAsUser: 1000
     fsGroup: 1000
-    readOnlyRootFilesystem: false  # Spring Boot needs write access for temp files
 
   # Pod annotations
   podAnnotations:
@@ -125,19 +120,11 @@ tekmetric-common-chart:
   # Tolerations - No special tolerations in dev
   tolerations: []
 
-  # Affinity rules - Prefer spreading pods across nodes
+  # Affinity rules - Use common chart's simplified structure
   affinity:
-    podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          podAffinityTerm:
-            labelSelector:
-              matchExpressions:
-                - key: app.kubernetes.io/name
-                  operator: In
-                  values:
-                    - backend
-            topologyKey: kubernetes.io/hostname
+    enabled: true
+    type: soft
+    topologyKey: kubernetes.io/hostname
 
   # ServiceAccount for IRSA (IAM Roles for Service Accounts)
   serviceAccount:
@@ -145,24 +132,3 @@ tekmetric-common-chart:
     name: "backend-sa"
     annotations: {}
       # eks.amazonaws.com/role-arn: "arn:aws:iam::596308305263:role/backend-service-irsa-dev"
-
-  # ConfigMaps and Secrets (optional)
-  configMaps: {}
-  secrets: {}
-
-  # Volume mounts (optional)
-  volumeMounts: []
-  volumes: []
-
-  # Network Policy (optional - commented out by default)
-  networkPolicy:
-    enabled: false
-    policyTypes:
-      - Ingress
-      - Egress
-    ingress:
-      - from:
-        - podSelector: {}
-    egress:
-      - to:
-        - podSelector: {}

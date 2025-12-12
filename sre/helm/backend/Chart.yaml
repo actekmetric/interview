@@ -7,5 +7,5 @@ appVersion: "1.0-SNAPSHOT"
 
 dependencies:
   - name: tekmetric-common-chart
-    version: "0.1.2"
+    version: "0.1.3"
     repository: "s3://tekmetric-helm-charts-dev/charts"
