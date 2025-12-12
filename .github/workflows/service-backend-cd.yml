@@ -156,42 +156,6 @@ jobs:
           account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
           aws-region: us-east-1
 
-      - name: Login to GHCR
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-      - name: Login to ECR
-        run: |
-          echo "🔐 Logging in to ECR..."
-          aws ecr get-login-password --region us-east-1 | \
-            docker login --username AWS --password-stdin \
-            ${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
-          echo "✅ Logged in to ECR"
-
-      - name: Push Image to ECR
-        id: ecr-push
-        run: |
-          echo "📦 Pushing image to ECR..."
-
-          SOURCE_IMAGE="${{ needs.determine-environment.outputs.image-ref }}"
-          ECR_REGISTRY="${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com"
-          ECR_REPO="backend"
-          IMAGE_TAG="${{ needs.determine-environment.outputs.version }}"
-
-          TARGET_IMAGE="${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
-
-          # Pull from GHCR
-          docker pull "${SOURCE_IMAGE}"
-
-          # Tag for ECR
-          docker tag "${SOURCE_IMAGE}" "${TARGET_IMAGE}"
-
-          # Push to ECR
-          docker push "${TARGET_IMAGE}"
-
-          echo "✅ Pushed ${TARGET_IMAGE}"
-          echo "ecr-image-uri=${TARGET_IMAGE}" >> $GITHUB_OUTPUT
-
       - name: Configure EKS access for Helm
         run: |
           echo "🔧 Configuring EKS access..."
@@ -245,7 +209,8 @@ jobs:
           IMAGE_TAG="${{ needs.determine-environment.outputs.version }}"
           ECR_REGISTRY="${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com"
 
-          # Helm uses existing kubeconfig (GitHubActionsRole-dev credentials)
+          # Image is already in ECR from CI workflow
+          # Helm chart pulled from S3, image pulled from ECR
           helm upgrade --install ${RELEASE_NAME} ${CHART} \
             --namespace ${NAMESPACE} \
             --create-namespace \

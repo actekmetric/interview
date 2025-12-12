@@ -34,8 +34,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       image-ref: ${{ steps.docker.outputs.image-ref }}
     permissions:
+      id-token: write
       contents: read
-      packages: write
       security-events: write
 
     steps:
@@ -73,7 +73,24 @@ jobs:
 
           echo "📦 Generated version: ${VERSION}"
 
-      - name: Build and Push Docker Image
+      - name: Configure AWS credentials
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        run: |
+          echo "🔐 Logging in to Amazon ECR..."
+          aws ecr get-login-password --region us-east-1 | \
+            docker login --username AWS --password-stdin \
+            ${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+          echo "✅ Logged in to ECR"
+
+      - name: Build and Push Docker Image to ECR
         id: docker
         uses: ./.github/actions/docker-build-push
         with:
@@ -82,14 +99,16 @@ jobs:
           # On PRs: single platform for local scanning
           # On push/workflow_dispatch: multi-platform for registry
           platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
-          image-name: ${{ github.repository_owner }}/backend
+          registry: ${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+          image-name: backend
           image-tag: ${{ steps.version.outputs.version }}
           push: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
-          tag-latest: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
-          registry-username: ${{ github.actor }}
-          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          tag-latest: false
+          registry-username: AWS
+          registry-password: ${{ steps.login-ecr.outputs.password }}
 
       - name: Scan Docker Image for Vulnerabilities
+        if: github.event_name == 'pull_request'
         uses: ./.github/actions/trivy-scan
         with:
           image-ref: ${{ steps.docker.outputs.image-ref }}
@@ -97,8 +116,6 @@ jobs:
           exit-code: '0'
           ignore-unfixed: false
           upload-sarif: true
-          registry-username: ${{ github.actor }}
-          registry-password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Save build metadata for CD
         run: |
