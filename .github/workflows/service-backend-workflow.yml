@@ -101,7 +101,7 @@ jobs:
           registry-password: ${{ secrets.GITHUB_TOKEN }}
 
   push-to-ecr:
-    name: Push to AWS ECR
+    name: Push to AWS ECR (${{ matrix.env }})
     runs-on: ubuntu-latest
     needs: build-and-test
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
@@ -110,7 +110,13 @@ jobs:
       contents: read
     strategy:
       matrix:
-        environment: [dev, qa, prod]
+        include:
+          - env: dev
+            env_upper: DEV
+          - env: qa
+            env_upper: QA
+          - env: prod
+            env_upper: PROD
     outputs:
       ecr-repository-url: ${{ steps.ecr-push.outputs.ecr-repository-url }}
       ecr-image-uri: ${{ steps.ecr-push.outputs.ecr-image-uri }}
@@ -122,9 +128,9 @@ jobs:
       - name: Configure AWS credentials via OIDC
         uses: ./.github/actions/aws-assume-role
         with:
-          role-to-assume: ${{ secrets[format('AWS_{0}_ROLE_ARN', upper(matrix.environment))] }}
+          role-to-assume: ${{ secrets[format('AWS_{0}_ROLE_ARN', matrix.env_upper)] }}
           aws-region: us-east-1
-          role-session-name: github-ecr-push-${{ matrix.environment }}
+          role-session-name: github-ecr-push-${{ matrix.env }}
 
       - name: Login to GHCR to pull image
         run: |
@@ -135,13 +141,13 @@ jobs:
         uses: ./.github/actions/ecr-provision-and-push
         with:
           repository-name: backend
-          environment: ${{ matrix.environment }}
+          environment: ${{ matrix.env }}
           image-ref: ${{ needs.build-and-test.outputs.image-ref }}
           image-tag: ${{ needs.build-and-test.outputs.version }}
           aws-region: us-east-1
-          max-image-count: ${{ matrix.environment == 'prod' && '20' || '10' }}
-          untagged-expire-days: ${{ matrix.environment == 'prod' && '3' || '7' }}
-          image-tag-mutability: ${{ matrix.environment == 'prod' && 'IMMUTABLE' || 'MUTABLE' }}
+          max-image-count: ${{ matrix.env == 'prod' && '20' || '10' }}
+          untagged-expire-days: ${{ matrix.env == 'prod' && '3' || '7' }}
+          image-tag-mutability: ${{ matrix.env == 'prod' && 'IMMUTABLE' || 'MUTABLE' }}
 
   publish-helm-chart:
     name: Publish Helm Chart
