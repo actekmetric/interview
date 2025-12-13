@@ -1,5 +1,9 @@
 # Java Spring Boot API Coding Exercise
 
+## 📚 Documentation
+
+- **[API Documentation](docs/API.md)** - Complete API endpoint reference with examples
+
 ## Steps to get started:
 
 #### Prerequisites

@@ -177,6 +177,98 @@ jobs:
           atomic: true
           wait: true
 
+      - name: Run Smoke Tests
+        if: ${{ !inputs.skip-tests }}
+        run: |
+          echo "🧪 Running post-deployment smoke tests..."
+
+          # Wait for all pods to be ready
+          echo "⏳ Waiting for pods to be ready..."
+          kubectl wait --for=condition=ready pod \
+            -l app.kubernetes.io/name=backend \
+            -n backend-services \
+            --timeout=300s || {
+              echo "❌ Pods failed to become ready within 5 minutes"
+              kubectl get pods -n backend-services -l app.kubernetes.io/name=backend
+              kubectl describe pods -n backend-services -l app.kubernetes.io/name=backend
+              exit 1
+            }
+
+          echo "✅ Pods are ready"
+
+          # Get service endpoint
+          echo "🔍 Getting service endpoint..."
+          SERVICE_NAME=$(kubectl get svc -n backend-services -l app.kubernetes.io/name=backend -o jsonpath='{.items[0].metadata.name}')
+          echo "Service name: ${SERVICE_NAME}"
+
+          # Test health endpoint via port-forward
+          echo "🏥 Testing health endpoints..."
+          kubectl port-forward -n backend-services svc/${SERVICE_NAME} 8080:8080 &
+          PF_PID=$!
+
+          # Wait for port-forward to be ready
+          sleep 5
+
+          # Test health endpoint
+          echo "Testing /actuator/health..."
+          if curl -f -s --max-time 10 http://localhost:8080/actuator/health; then
+            echo "✅ Health endpoint: OK"
+          else
+            echo "❌ Health endpoint: FAILED"
+            kill $PF_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Test liveness endpoint
+          echo "Testing /actuator/health/liveness..."
+          if curl -f -s --max-time 10 http://localhost:8080/actuator/health/liveness; then
+            echo "✅ Liveness endpoint: OK"
+          else
+            echo "❌ Liveness endpoint: FAILED"
+            kill $PF_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Test readiness endpoint
+          echo "Testing /actuator/health/readiness..."
+          if curl -f -s --max-time 10 http://localhost:8080/actuator/health/readiness; then
+            echo "✅ Readiness endpoint: OK"
+          else
+            echo "❌ Readiness endpoint: FAILED"
+            kill $PF_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Test application endpoint
+          echo "Testing /api/welcome..."
+          RESPONSE=$(curl -s --max-time 10 http://localhost:8080/api/welcome)
+          if [[ "$RESPONSE" == *"Welcome"* ]]; then
+            echo "✅ Application endpoint: OK"
+            echo "Response: $RESPONSE"
+          else
+            echo "❌ Application endpoint: FAILED"
+            echo "Response: $RESPONSE"
+            kill $PF_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Test metrics endpoint
+          echo "Testing /actuator/prometheus..."
+          if curl -f -s --max-time 10 http://localhost:8080/actuator/prometheus | grep -q "jvm_memory_used_bytes"; then
+            echo "✅ Metrics endpoint: OK (Prometheus metrics available)"
+          else
+            echo "❌ Metrics endpoint: FAILED"
+            kill $PF_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Clean up port-forward
+          kill $PF_PID 2>/dev/null || true
+
+          echo ""
+          echo "🎉 All smoke tests passed!"
+          echo "✅ Deployment verified and healthy"
+
       - name: Deployment summary
         if: always()
         run: |

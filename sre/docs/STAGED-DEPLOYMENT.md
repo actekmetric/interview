@@ -2,14 +2,15 @@
 
 ## Overview
 
-The Terraform GitOps workflow now supports staged deployments, allowing you to plan and apply infrastructure in 4 sequential stages. This eliminates the complexity of mock outputs and dependency management.
+The Terraform GitOps workflow now supports staged deployments, allowing you to plan and apply infrastructure in 5 sequential stages. This eliminates the complexity of mock outputs and dependency management.
 
 ## Deployment Stages
 
 1. **1-networking** - VPC, subnets, NAT gateways, security groups
 2. **2-eks-cluster** - EKS cluster control plane + node groups (no addons)
 3. **3-iam** - IRSA roles for EKS service accounts
-4. **4-eks-addons** - EKS addons (VPC CNI, CoreDNS, kube-proxy, EBS CSI driver)
+4. **4-ecr** - Elastic Container Registry for microservice images
+5. **5-eks-addons** - EKS addons (VPC CNI, CoreDNS, kube-proxy, EBS CSI driver)
 
 ## Usage
 
@@ -25,26 +26,29 @@ Select:
   - `1-networking` - Only networking module
   - `2-eks-cluster` - Only EKS cluster module
   - `3-iam` - Only IAM module
-  - `4-eks-addons` - Only EKS addons module
+  - `4-ecr` - Only ECR module
+  - `5-eks-addons` - Only EKS addons module
 
 ### Typical Deployment Flow
 
 #### Full Fresh Deployment
 
-Run these **4 times for plan**, then **4 times for apply**:
+Run these **5 times for plan**, then **5 times for apply**:
 
 ```
 1. Plan → Stage: 1-networking → Environment: dev
 2. Plan → Stage: 2-eks-cluster → Environment: dev
 3. Plan → Stage: 3-iam → Environment: dev
-4. Plan → Stage: 4-eks-addons → Environment: dev
+4. Plan → Stage: 4-ecr → Environment: dev
+5. Plan → Stage: 5-eks-addons → Environment: dev
 
 Then:
 
-5. Apply → Stage: 1-networking → Environment: dev
-6. Apply → Stage: 2-eks-cluster → Environment: dev
-7. Apply → Stage: 3-iam → Environment: dev
-8. Apply → Stage: 4-eks-addons → Environment: dev
+6. Apply → Stage: 1-networking → Environment: dev
+7. Apply → Stage: 2-eks-cluster → Environment: dev
+8. Apply → Stage: 3-iam → Environment: dev
+9. Apply → Stage: 4-ecr → Environment: dev
+10. Apply → Stage: 5-eks-addons → Environment: dev
 ```
 
 #### Quick All-in-One (if infrastructure already exists)
@@ -100,7 +104,12 @@ eks-addons (needs eks-cluster + iam role ARNs)
 - Adding new service account roles
 - Updating IAM policies
 
-### Stage 4: eks-addons
+### Stage 4: ecr
+- Adding new microservice ECR repositories
+- Updating ECR lifecycle policies
+- Changing repository settings (mutability, scan settings)
+
+### Stage 5: eks-addons
 - After IAM roles are created
 - Addon version updates
 - Adding new addons

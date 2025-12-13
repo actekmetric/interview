@@ -763,7 +763,7 @@ terraform output state_bucket_name
 ## Next Steps
 
 - **Read**: [STAGED-DEPLOYMENT.md](STAGED-DEPLOYMENT.md) for deployment strategies
-- **Review**: [GitHub Workflows Documentation](../.github/workflows/README.md)
+- **Review**: [GitHub Workflows Documentation](github/workflows.md)
 - **Customize**: Adjust node sizes, instance types for your workload
 - **Monitor**: Set up CloudWatch alerts and dashboards
 - **Optimize**: Use spot instances in dev/qa for cost savings
@@ -775,5 +775,5 @@ terraform output state_bucket_name
 For issues or questions:
 - Infrastructure setup: Review this guide step by step
 - Terraform errors: Check [Module README files](terraform/modules/)
-- GitHub Actions: Check [Workflows README](../.github/workflows/README.md)
+- GitHub Actions: Check [Workflows README](github/workflows.md)
 - AWS-specific: Review AWS CloudTrail logs for detailed error messages
