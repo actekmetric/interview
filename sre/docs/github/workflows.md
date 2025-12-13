@@ -320,7 +320,144 @@ git push origin main
 
 ---
 
-#### 6. 📦 Common Helm Chart (sre-helm-common-chart.yml)
+#### 6. 🚢 Backend Service CD (service-backend-cd.yml)
+
+**Purpose**: Deploy backend service to EKS environments with automated rollback on smoke test failure.
+
+**Trigger Methods**:
+- Automatically after successful CI workflow completion (workflow_run trigger)
+- Manual dispatch with environment and version selection
+
+**Pipeline Flow**:
+
+**Stage 1: Determine Deployment Target**
+- Downloads build metadata from CI workflow artifact
+- Determines target environment based on branch (develop → dev, release → qa, master → prod)
+- Extracts version, image reference, and deployment decision
+- Production deployments require manual workflow_dispatch (safety)
+
+**Stage 2: Deploy to Environment** (example: DEV)
+- Configures AWS credentials via IRSA
+- Deploys to EKS using helm-deploy action
+- Uses atomic deployment (rolls back if Helm deployment fails)
+- Runs post-deployment smoke tests:
+  - Health endpoints (/actuator/health, /liveness, /readiness)
+  - Application endpoints (/api/welcome)
+  - Metrics endpoint (/actuator/prometheus)
+- **Automatic rollback on smoke test failure** (NEW)
+- Generates deployment summary
+
+**Automatic Rollback** (NEW Feature):
+```yaml
+- name: Run Smoke Tests
+  id: smoke-tests
+  run: |
+    # Test endpoints...
+    # Exit 1 if any test fails
+
+- name: Rollback on Smoke Test Failure
+  if: failure() && steps.smoke-tests.outcome == 'failure'
+  uses: ./.github/actions/helm-rollback
+  with:
+    cluster-name: tekmetric-dev
+    aws-region: us-east-1
+    release-name: backend
+    namespace: backend-services
+    timeout: 5m
+    wait: true
+    cleanup-on-fail: true
+    uninstall-if-first: true
+```
+
+**Rollback Behavior**:
+- **Helm atomic flag**: Rolls back if deployment itself fails (pod crash, health probe failure)
+- **Smoke test rollback** (NEW): Rolls back if post-deployment validation fails (broken endpoints, integration issues)
+- Together, they provide comprehensive deployment safety
+
+**Deployment Targets by Branch**:
+| Branch | Environment | Auto-Deploy | Approval Required |
+|--------|-------------|-------------|-------------------|
+| develop | dev | ✅ Yes | ❌ No |
+| release/* | qa | ✅ Yes | ❌ No |
+| master/main | prod | ❌ No | ✅ Yes (manual dispatch) |
+| hotfix/* | dev | ✅ Yes | ❌ No |
+
+**Manual Production Deployment**:
+```bash
+# Via GitHub UI: Actions → Backend Service CD
+# Inputs:
+#   - Environment: prod
+#   - Version: 1.0.0.42-abc12345
+#   - Skip tests: false (recommended)
+```
+
+**Smoke Tests**:
+The CD workflow runs comprehensive smoke tests after deployment:
+- ✅ Pod readiness check (5-minute timeout)
+- ✅ Health endpoint: /actuator/health
+- ✅ Liveness endpoint: /actuator/health/liveness
+- ✅ Readiness endpoint: /actuator/health/readiness
+- ✅ Application endpoint: /api/welcome
+- ✅ Metrics endpoint: /actuator/prometheus
+
+If any test fails, automatic rollback is triggered.
+
+**CD Workflow Flow**:
+```
+┌──────────────────────────────────────┐
+│ CI Workflow Completes Successfully  │
+│ (Build, Test, Publish)              │
+└────────────────┬─────────────────────┘
+                 │ workflow_run trigger
+                 ▼
+┌──────────────────────────────────────┐
+│ 1️⃣ Determine Deployment Target      │
+│ - Download build metadata           │
+│ - Determine environment & version   │
+└────────────────┬─────────────────────┘
+                 │
+                 ▼
+┌──────────────────────────────────────┐
+│ 2️⃣ Deploy to Environment (DEV)      │
+│ - Configure AWS credentials         │
+│ - Deploy with Helm (atomic)         │
+│ - Run smoke tests                   │
+└────────────┬────────────┬────────────┘
+             │            │
+        SUCCESS       FAILURE
+             │            │
+             ▼            ▼
+┌──────────────┐  ┌────────────────────┐
+│ Deployment   │  │ 🔄 Automatic       │
+│ Complete     │  │    Rollback        │
+│ ✅           │  │ - Rollback to      │
+└──────────────┘  │   previous version │
+                  │ - Verify pods      │
+                  │ - Report status    │
+                  └────────────────────┘
+```
+
+**Artifacts**:
+- Deployment summary with version and image URI
+- Quick commands for viewing pods and logs
+- Rollback summary (if rollback occurred)
+
+**Usage**:
+```bash
+# Automatic deployment (develop branch):
+git checkout develop
+git merge feature/my-change
+git push origin develop
+# CI runs → publishes artifacts → CD triggers → deploys to dev
+
+# Manual production deployment:
+# Actions → Backend Service CD → workflow_dispatch
+# Select: environment=prod, version=1.0.0.42-abc12345
+```
+
+---
+
+#### 7. 📦 Common Helm Chart (sre-helm-common-chart.yml)
 
 **Purpose**: Publish the shared `tekmetric-common-chart` library chart used as a dependency by application charts.
 
