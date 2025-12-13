@@ -202,14 +202,15 @@ The workflows are organized into two main categories:
 **Job 1: Build and Test**
 - Compile Java code with Maven (JDK 8)
 - Run unit tests
-- Generate semantic version: `<base>.<build>-<sha>-SNAPSHOT`
+- Detect branch and determine target environment
+- Generate semantic version: `<base>.<build>-<sha>-<suffix>` (suffix based on branch)
 - Build multi-platform Docker image (amd64, arm64)
-- Push image to GitHub Container Registry (only on push/dispatch)
 - Scan image for vulnerabilities with Trivy
+- Push image to ECR (only for deployable branches: develop, release/*, master, hotfix/*)
 
 **Job 2: Publish Helm Chart**
-- Only runs on push to main/master
-- Publishes chart to GitHub Pages
+- Only runs for deployable branches
+- Publishes chart to S3 bucket
 - Updates chart version and appVersion to match Docker image
 - Validates chart before publishing
 
@@ -253,8 +254,8 @@ git push origin main
 ```
 
 **Artifacts**:
-- Docker image: `ghcr.io/<org>/backend:<version>`
-- Helm chart: Published to `https://<org>.github.io/<repo>`
+- Docker image: `{account-id}.dkr.ecr.us-east-1.amazonaws.com/backend:<version>`
+- Helm chart: Published to `s3://tekmetric-helm-charts-{account-id}/charts/`
 - Security scan: SARIF uploaded to GitHub Security tab
 
 ---
@@ -275,7 +276,7 @@ git push origin main
 5. Generate summary with installation instructions
 
 **Chart Repository**:
-- Published to: `https://<org>.github.io/<repo>/`
+- Published to: `s3://tekmetric-helm-charts-{account-id}/charts/`
 - Can be added as a Helm dependency in other charts
 
 **Usage as Dependency**:
@@ -284,7 +285,7 @@ git push origin main
 dependencies:
   - name: tekmetric-common-chart
     version: "1.0.0"
-    repository: "https://actekmetric.github.io/interview/"
+    repository: "s3://tekmetric-helm-charts-{account-id}/charts/"
 ```
 
 **Version Management**:

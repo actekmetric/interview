@@ -1,6 +1,6 @@
 # Docker Build and Push Action
 
-Builds multi-platform Docker images and pushes to GitHub Container Registry with caching optimization.
+Builds multi-platform Docker images and pushes to Amazon ECR with caching optimization.
 
 ## Features
 
@@ -18,7 +18,7 @@ Builds multi-platform Docker images and pushes to GitHub Container Registry with
 | `context` | Build context directory | Yes | - |
 | `dockerfile` | Dockerfile path relative to context | No | `Dockerfile` |
 | `platforms` | Target platforms (comma-separated) | No | `linux/amd64,linux/arm64` |
-| `registry` | Container registry URL | No | `ghcr.io` |
+| `registry` | Container registry URL | No | `{account-id}.dkr.ecr.us-east-1.amazonaws.com` |
 | `registry-username` | Registry username | Yes | - |
 | `registry-password` | Registry password/token | Yes | - |
 | `image-name` | Image name without registry | Yes | - |
@@ -219,13 +219,13 @@ The action generates a summary like:
 ```
 ## 🐳 Docker Image Build
 
-**Image:** `ghcr.io/myorg/backend:1.0.0-build.123-abc1234`
+**Image:** `{account-id}.dkr.ecr.us-east-1.amazonaws.com/myorg/backend:1.0.0-build.123-abc1234`
 **Platforms:** `linux/amd64,linux/arm64`
 **Pushed:** true
 
 ### 📥 Pull Command
 ```bash
-docker pull ghcr.io/myorg/backend:1.0.0-build.123-abc1234
+docker pull {account-id}.dkr.ecr.us-east-1.amazonaws.com/myorg/backend:1.0.0-build.123-abc1234
 ```
 
 **Digest:** `sha256:abc123...`
@@ -236,7 +236,7 @@ docker pull ghcr.io/myorg/backend:1.0.0-build.123-abc1234
 **This action:**
 - Uses inline tagging logic (simple)
 - Direct docker/build-push-action usage
-- Optimized for GitHub Container Registry
+- Optimized for Amazon ECR
 
 **Alternative approaches:**
 - docker/metadata-action (more complex, more features)

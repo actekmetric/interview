@@ -76,7 +76,7 @@ Scales Kubernetes workloads to zero or restores them to saved replica counts.
 ### Application Actions
 
 #### 4. 🐳 docker-build-push
-Builds multi-platform Docker images and pushes to GitHub Container Registry.
+Builds multi-platform Docker images and pushes to Amazon ECR.
 
 **Key Features:**
 - Multi-platform builds (amd64, arm64)
