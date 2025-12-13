@@ -142,6 +142,12 @@ resource "aws_iam_role_policy_attachment" "node_group_registry_policy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
+# CloudWatch policy for CloudWatch Observability add-on
+resource "aws_iam_role_policy_attachment" "node_group_cloudwatch_policy" {
+  role       = aws_iam_role.node_group.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
 # Managed Node Groups
 resource "aws_eks_node_group" "main" {
   for_each = var.node_groups
