@@ -126,6 +126,31 @@ Lints, validates, and publishes Helm charts to GitHub Pages using chart-releaser
 
 [View Documentation](./helm-publish/README.md)
 
+#### 8. 🔄 helm-rollback
+Automatically rolls back Helm releases when post-deployment validation fails.
+
+**Key Features:**
+- Checks release history before rollback
+- Handles first deployment edge case (optional uninstall)
+- Configurable timeout and wait options
+- Pod readiness verification after rollback
+- Detailed outputs and status reporting
+- Integrates with smoke tests in CD workflows
+
+**Usage:**
+```yaml
+- name: Rollback on Smoke Test Failure
+  if: failure() && steps.smoke-tests.outcome == 'failure'
+  uses: ./.github/actions/helm-rollback
+  with:
+    cluster-name: tekmetric-dev
+    release-name: backend
+    namespace: backend-services
+    timeout: 5m
+```
+
+[View Documentation](./actions/helm-rollback.md)
+
 ## Usage Examples
 
 ### Application Pipeline (Backend Service)
@@ -286,6 +311,7 @@ These actions follow these principles:
 - **ecr-publish**: Publishing images to Amazon ECR
 - **trivy-scan**: Security vulnerability scanning
 - **helm-publish**: Chart publishing to S3
+- **helm-rollback**: Automatic rollback on post-deployment validation failure
 
 ## Differences from Other Implementations
 
@@ -293,9 +319,10 @@ These actions follow these principles:
 - **AWS Authentication**: OIDC-based (no static credentials in workflows)
 - **Workload Scaling**: Preserves replica state for environment restoration
 - **Helm Publishing**: Uses S3 with helm-s3 plugin (not ChartMuseum or GitHub Pages)
+- **Helm Rollback**: Automatic rollback on smoke test failure (not just Helm deployment failure)
 - **Docker Builds**: Separated build and publish concerns for better CI/CD control
 - **Security Scanning**: Configurable thresholds and reporting options
-- **Architecture**: 7 focused actions organized by purpose (infrastructure vs application)
+- **Architecture**: 8 focused actions organized by purpose (infrastructure vs application)
 
 ## Contributing
 
