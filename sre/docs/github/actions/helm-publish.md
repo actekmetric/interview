@@ -132,12 +132,16 @@ The action generates a summary like:
 
 **Chart Name:** `backend`
 **Version:** `0.1.0`
-**Repository:** https://myorg.s3://tekmetric-helm-charts-{account-id}/charts
+**Repository:** `s3://tekmetric-helm-charts-dev/charts`
 
 ### 📥 Install Command
 ```bash
-helm repo add my-charts https://myorg.s3://tekmetric-helm-charts-{account-id}/charts
+# Install helm-s3 plugin (if not already installed)
+helm plugin install https://github.com/hypnoglow/helm-s3.git
+
+# Add S3 repository
+helm repo add tekmetric-dev s3://tekmetric-helm-charts-dev/charts
 helm repo update
-helm install my-release my-charts/backend
+helm install my-release tekmetric-dev/backend
 ```
 ```

@@ -315,7 +315,7 @@ git push origin main
 
 **Artifacts**:
 - Docker image: `{account-id}.dkr.ecr.us-east-1.amazonaws.com/backend:<version>`
-- Helm chart: Published to `s3://tekmetric-helm-charts-{account-id}/charts/`
+- Helm chart: Published to `s3://tekmetric-helm-charts-{environment}/charts/`
 - Security scan: SARIF uploaded to GitHub Security tab
 
 ---
@@ -473,7 +473,7 @@ git push origin develop
 5. Generate summary with installation instructions
 
 **Chart Repository**:
-- Published to: `s3://tekmetric-helm-charts-{account-id}/charts/`
+- Published to: `s3://tekmetric-helm-charts-{environment}/charts/`
 - Can be added as a Helm dependency in other charts
 
 **Usage as Dependency**:
@@ -482,7 +482,7 @@ git push origin develop
 dependencies:
   - name: tekmetric-common-chart
     version: "1.0.0"
-    repository: "s3://tekmetric-helm-charts-{account-id}/charts/"
+    repository: "s3://tekmetric-helm-charts-dev/charts/"  # or qa/prod
 ```
 
 **Version Management**:
