@@ -75,19 +75,34 @@ Scales Kubernetes workloads to zero or restores them to saved replica counts.
 
 ### Application Actions
 
-#### 4. 🐳 docker-build-push
-Builds multi-platform Docker images and pushes to GitHub Container Registry.
+#### 4. 🐳 docker-build
+Builds multi-platform Docker images locally without pushing to any registry.
 
 **Key Features:**
 - Multi-platform builds (amd64, arm64)
 - GitHub Actions cache optimization
-- Conditional push (useful for PRs)
-- Flexible tagging strategy
+- Builds locally without registry credentials
+- Suitable for PRs and validation workflows
 - Build arguments support
+- Flexible image loading for scanning
 
-[View Documentation](./docker-build-push/README.md)
+[View Documentation](./actions/docker-build.md)
 
-#### 5. 🔒 trivy-scan
+#### 5. 📤 ecr-publish
+Tags and pushes pre-built Docker images to Amazon ECR.
+
+**Key Features:**
+- Uses official AWS ECR Login action for authentication
+- ECR authentication with automatic password masking
+- Tags local images with ECR registry path
+- Pushes images to ECR
+- Outputs full image URI
+- Works after docker-build action
+- Supports multi-account registries
+
+[View Documentation](./actions/ecr-publish.md)
+
+#### 6. 🔒 trivy-scan
 Scans Docker images for security vulnerabilities with configurable thresholds.
 
 **Key Features:**
@@ -99,7 +114,7 @@ Scans Docker images for security vulnerabilities with configurable thresholds.
 
 [View Documentation](./trivy-scan/README.md)
 
-#### 6. 📦 helm-publish
+#### 7. 📦 helm-publish
 Lints, validates, and publishes Helm charts to GitHub Pages using chart-releaser.
 
 **Key Features:**
@@ -120,28 +135,53 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image-ref: ${{ steps.docker.outputs.image-ref }}
+      image-uri: ${{ steps.ecr.outputs.image-uri }}
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
-      # Build and push Docker image
+      # Build Docker image (always runs, even for PRs)
       - name: Build Docker Image
         id: docker
-        uses: ./.github/actions/docker-build-push
+        uses: ./.github/actions/docker-build
         with:
           context: ./backend
           dockerfile: docker/Dockerfile
-          image-name: ${{ github.repository_owner }}/backend
-          image-tag: 1.0.0-build.123
-          registry-username: ${{ github.actor }}
-          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image-name: backend
+          image-tag: 1.0.0-build.123-abc1234
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          load: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
-      # Scan for vulnerabilities
+      # Scan for vulnerabilities (always runs)
       - name: Scan Image
         uses: ./.github/actions/trivy-scan
         with:
           image-ref: ${{ steps.docker.outputs.image-ref }}
           severity: CRITICAL,HIGH
           exit-code: '0'
+
+      # Configure AWS credentials (only for deployable branches)
+      - name: Configure AWS credentials
+        if: github.event_name == 'push'
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
+          aws-region: us-east-1
+
+      # Publish to ECR (only for deployable branches)
+      - name: Publish to ECR
+        id: ecr
+        if: github.event_name == 'push'
+        uses: ./.github/actions/ecr-publish
+        with:
+          ecr-registry: ${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+          image-name: backend
+          source-tag: 1.0.0-build.123-abc1234
+          target-tag: 1.0.0-build.123-abc1234
 
   publish:
     needs: build
@@ -242,19 +282,20 @@ These actions follow these principles:
 - **workload-scale**: Kubernetes workload lifecycle management
 
 ### Application Delivery
-- **docker-build-push**: Multi-platform container builds
+- **docker-build**: Multi-platform container builds (local only, no push)
+- **ecr-publish**: Publishing images to Amazon ECR
 - **trivy-scan**: Security vulnerability scanning
-- **helm-publish**: Chart publishing to GitHub Pages
+- **helm-publish**: Chart publishing to S3
 
 ## Differences from Other Implementations
 
 - **Terraform Setup**: Intelligent caching to avoid repeated downloads
 - **AWS Authentication**: OIDC-based (no static credentials in workflows)
 - **Workload Scaling**: Preserves replica state for environment restoration
-- **Helm Publishing**: Uses GitHub Pages (not ChartMuseum) for simpler infrastructure
-- **Docker Builds**: Inline approach without complex metadata handling
+- **Helm Publishing**: Uses S3 with helm-s3 plugin (not ChartMuseum or GitHub Pages)
+- **Docker Builds**: Separated build and publish concerns for better CI/CD control
 - **Security Scanning**: Configurable thresholds and reporting options
-- **Architecture**: 6 focused actions organized by purpose (infrastructure vs application)
+- **Architecture**: 7 focused actions organized by purpose (infrastructure vs application)
 
 ## Contributing
 

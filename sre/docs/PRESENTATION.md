@@ -195,9 +195,10 @@ graph LR
 
 **Backend CI Workflow (service-backend-ci.yml):**
 1. **Build & Test:**
-   - Maven compilation (Java 8)
+   - Maven compilation (Java 17)
    - Unit test execution
-   - Version generation: `<base>.<build>-<sha>-SNAPSHOT`
+   - Branch detection and environment mapping
+   - Version generation: `<base>.<build>-<sha>-<suffix>` (suffix: `-dev`, `-rc`, or none)
 
 2. **Docker Build:**
    - Multi-platform (amd64, arm64)
@@ -205,27 +206,28 @@ graph LR
    - Security best practices (non-root user, Alpine base)
 
 3. **Security:**
-   - Trivy vulnerability scanning
+   - Trivy vulnerability scanning (ALL builds)
    - SARIF report to GitHub Security tab
    - Configurable severity thresholds
 
-4. **Publish:**
-   - Push image to ECR
+4. **Publish (deployable branches only):**
+   - Push image to ECR (develop, release/*, master, hotfix/*)
    - Package and publish Helm chart to S3
 
 **Backend CD Workflow (service-backend-cd.yml):**
-1. **Automatic Trigger:** After CI completes successfully
-2. **Environment Determination:** Based on version pattern (SNAPSHOT → dev)
+1. **Automatic Trigger:** After CI completes (deployable branches only, NOT PRs)
+2. **Environment Determination:** Branch-based (develop → dev, release/* → qa, master → prod)
 3. **AWS Authentication:** GitHub OIDC (no credentials)
 4. **Deployment:** Helm upgrade --install with atomic flag
-5. **Verification:** Health check endpoints
+5. **Verification:** Health check endpoints and smoke tests
 
 ### Custom Composite Actions
 
 **Reusable building blocks:**
 - `terraform-setup`: Install Terraform/Terragrunt with caching
 - `aws-assume-role`: OIDC-based AWS authentication
-- `docker-build-push`: Multi-platform Docker builds
+- `docker-build`: Local Docker image builds (no push)
+- `ecr-publish`: Publish images to Amazon ECR
 - `trivy-scan`: Container security scanning
 - `helm-publish`: Chart validation and publishing
 - `helm-deploy`: Kubernetes deployment
@@ -239,21 +241,27 @@ graph LR
 
 ### Version Management
 
-**Semantic Versioning:**
+**Branch-Based Versioning:**
 ```
-Format: <base>.<build>-<sha>-SNAPSHOT
-Example: 1.0.0.42-abc1234-SNAPSHOT
+Format: <base>.<build>-<sha>-<suffix>
 
-Base: from pom.xml (1.0.0)
-Build: GitHub Actions run number (42)
-SHA: Short git commit hash (abc1234)
-Suffix: -SNAPSHOT for dev/qa, removed for prod
+Examples:
+- develop:    1.0.0.42-abc1234-dev
+- release/*:  1.0.0.42-abc1234-rc
+- master:     1.0.0.42-abc1234
+- feature/*:  1.0.0.42-abc1234-feature-{name}
+- hotfix/*:   1.0.0.42-abc1234-hotfix-{name}
+
+Components:
+- Base: from pom.xml (1.0.0)
+- Build: GitHub Actions run number (42)
+- SHA: Short git commit hash (abc1234)
+- Suffix: Determined by branch name
 ```
 
 **Image Tagging:**
-- `latest` - Most recent build (dev only)
-- `<version>` - Specific version
-- `<sha>` - Specific commit
+- Branch-based tags only (no `latest` tag)
+- Each build has unique version based on branch
 
 ---
 

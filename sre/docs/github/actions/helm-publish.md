@@ -132,11 +132,11 @@ The action generates a summary like:
 
 **Chart Name:** `backend`
 **Version:** `0.1.0`
-**Repository:** https://myorg.github.io/interview
+**Repository:** https://myorg.s3://tekmetric-helm-charts-{account-id}/charts
 
 ### 📥 Install Command
 ```bash
-helm repo add my-charts https://myorg.github.io/interview
+helm repo add my-charts https://myorg.s3://tekmetric-helm-charts-{account-id}/charts
 helm repo update
 helm install my-release my-charts/backend
 ```

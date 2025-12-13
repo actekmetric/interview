@@ -193,10 +193,11 @@ git push origin main
 1. **Build & Test Job:**
    - Maven compilation
    - Unit test execution
-   - Version generation (format: `1.0.0.<build>-<sha>-SNAPSHOT`)
+   - Branch detection and environment determination
+   - Version generation (format varies by branch: `-dev`, `-rc`, or no suffix)
    - Docker multi-platform build (amd64, arm64)
-   - Push to ECR
    - Trivy security scan
+   - Push to ECR (only for deployable branches: develop, release/*, master, hotfix/*)
 
 2. **Publish Helm Chart Job:**
    - Package Helm chart
@@ -246,8 +247,8 @@ aws s3 ls s3://tekmetric-helm-charts-dev/charts/ | grep backend-service
 ### 2.5 Show CD Workflow (3 min)
 
 **Automatic Trigger:**
-- CD workflow triggers automatically after CI completes
-- Deployment to dev environment for SNAPSHOT versions
+- CD workflow triggers automatically after CI completes (for deployable branches only)
+- Branch-based deployment: develop → dev, release/* → qa, master → prod (manual approval)
 
 **Manual Trigger (if needed):**
 - Actions → Backend Service CD → Run workflow

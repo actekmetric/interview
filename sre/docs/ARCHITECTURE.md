@@ -4,6 +4,19 @@
 
 This document provides detailed architecture diagrams and explanations for the Tekmetric Interview SRE infrastructure.
 
+**Key Features:**
+- Multi-account AWS setup (dev, qa, prod isolation)
+- Branch-based deployment strategy (develop → dev, release → qa, master → prod)
+- Terraform staged deployment (4 stages to eliminate circular dependencies)
+- GitHub Actions CI/CD with OIDC authentication
+- Amazon EKS with production-ready Helm charts
+- Comprehensive security (IRSA, VPC endpoints, encryption)
+
+**Related Documentation:**
+- [Git Workflow](GIT-WORKFLOW.md) - Branch-based deployment workflow and usage
+- [Staged Deployment](STAGED-DEPLOYMENT.md) - Terraform infrastructure deployment strategy
+- [Setup Guide](SETUP-GUIDE.md) - Step-by-step infrastructure setup
+
 ---
 
 ## 1. High-Level System Architecture
@@ -190,6 +203,18 @@ graph TB
 
 ## 3. CI/CD Pipeline Architecture
 
+### Branch-Based Deployment Strategy
+
+The CI/CD pipeline uses **branch-based deployments** where branch names automatically determine target environments:
+
+- **develop** → auto-deploy to **dev**
+- **release/*** → auto-deploy to **qa**
+- **master/main** → manual deploy to **prod**
+- **feature/*** → build/test only (no deploy)
+- **hotfix/*** → auto-deploy to **dev**
+
+📖 **For complete Git workflow details**, see [Git Workflow Documentation](GIT-WORKFLOW.md)
+
 ### Complete CI/CD Flow
 
 ```mermaid
@@ -203,14 +228,15 @@ graph LR
     subgraph "GitHub"
         REPO[Repository]
         PR[Pull Request]
-        MAIN[Main Branch]
+        BRANCHES[Branches<br/>develop/release/master]
     end
 
     subgraph "GitHub Actions<br/>Backend CI"
         CHECKOUT[Checkout Code]
         BUILD[Maven Build]
         TEST[Unit Tests]
-        VERSION[Generate Version]
+        BRANCH_DETECT[Detect Branch<br/>Determine Environment]
+        VERSION[Generate Version<br/>Based on Branch]
         DOCKER[Docker Build<br/>Multi-platform]
         SCAN[Trivy Scan]
         PUSH_ECR[Push to ECR]
@@ -220,6 +246,7 @@ graph LR
 
     subgraph "GitHub Actions<br/>Backend CD"
         TRIGGER[Trigger on CI Success]
+        ENV_DETECT[Read Branch Metadata<br/>Select Environment]
         AUTH[AWS OIDC Auth]
         KUBE[Get EKS Credentials]
         DEPLOY[Helm Deploy]
@@ -236,12 +263,13 @@ graph LR
     COMMIT --> PUSH
     PUSH --> REPO
     REPO --> PR
-    PR --> MAIN
-    MAIN --> CHECKOUT
+    PR --> BRANCHES
+    BRANCHES --> CHECKOUT
 
     CHECKOUT --> BUILD
     BUILD --> TEST
-    TEST --> VERSION
+    TEST --> BRANCH_DETECT
+    BRANCH_DETECT --> VERSION
     VERSION --> DOCKER
     DOCKER --> SCAN
     SCAN --> PUSH_ECR
@@ -249,7 +277,8 @@ graph LR
     HELM --> PUSH_S3
 
     PUSH_S3 --> TRIGGER
-    TRIGGER --> AUTH
+    TRIGGER --> ENV_DETECT
+    ENV_DETECT --> AUTH
     AUTH --> KUBE
     KUBE --> DEPLOY
     DEPLOY --> HEALTH
@@ -267,16 +296,18 @@ graph LR
 **Stage 1: CI (Continuous Integration)**
 1. **Build:** Maven compiles Java code
 2. **Test:** Execute unit tests
-3. **Version:** Generate semantic version
-4. **Docker:** Build multi-platform image (amd64, arm64)
-5. **Scan:** Trivy security vulnerability scan
-6. **Publish:** Push image to ECR, chart to S3
+3. **Branch Detection:** Identify branch and determine target environment
+4. **Version:** Generate semantic version with branch suffix (e.g., `-dev`, `-rc`)
+5. **Docker:** Build multi-platform image (amd64, arm64)
+6. **Scan:** Trivy security vulnerability scan
+7. **Publish:** Push image to ECR, chart to S3
 
 **Stage 2: CD (Continuous Deployment)**
-1. **Trigger:** Automatic after CI success
-2. **Auth:** GitHub OIDC to AWS
-3. **Deploy:** Helm upgrade --install
-4. **Verify:** Health check endpoints
+1. **Trigger:** Automatic after CI success (for deployable branches)
+2. **Environment Selection:** Read branch metadata to determine target environment
+3. **Auth:** GitHub OIDC to AWS
+4. **Deploy:** Helm upgrade --install to target environment
+5. **Verify:** Health check endpoints
 
 ---
 
@@ -292,15 +323,16 @@ graph TB
     end
 
     subgraph "Application Workflows"
-        CI[Backend CI<br/>Push to main]
-        CD[Backend CD<br/>After CI]
+        CI[Backend CI<br/>Push to develop/release/master]
+        CD[Backend CD<br/>After CI + Branch-based]
         COMMON[Common Helm Chart<br/>Chart changes]
     end
 
     subgraph "Custom Actions"
         TF_SETUP[terraform-setup]
         AWS_AUTH[aws-assume-role]
-        DOCKER_BUILD[docker-build-push]
+        DOCKER_BUILD[docker-build]
+        ECR_PUB[ecr-publish]
         TRIVY[trivy-scan]
         HELM_PUB[helm-publish]
         HELM_DEP[helm-deploy]
@@ -311,6 +343,7 @@ graph TB
     TF --> AWS_AUTH
 
     CI --> DOCKER_BUILD
+    CI --> ECR_PUB
     CI --> TRIVY
     CI --> HELM_PUB
 
@@ -328,10 +361,69 @@ graph TB
 
 **Workflow Types:**
 - **Manual Dispatch:** User triggers from Actions UI
-- **Push Trigger:** Automatic on code push
+- **Push Trigger:** Automatic on code push (branch-based)
 - **PR Trigger:** Automatic on pull request
 - **PR Comment:** `/terraform plan dev` commands
-- **Workflow Completion:** CD triggers after CI
+- **Workflow Completion:** CD triggers after CI (branch-based environment)
+
+### Branch-to-Environment Deployment Flow
+
+```mermaid
+graph TB
+    subgraph "Git Branches"
+        FEATURE[feature/*<br/>Work in progress]
+        DEVELOP[develop<br/>Main development]
+        RELEASE[release/*<br/>Release candidates]
+        MASTER[master/main<br/>Production ready]
+        HOTFIX[hotfix/*<br/>Urgent fixes]
+    end
+
+    subgraph "CI Actions"
+        BUILD[Build & Test]
+        VERSION_DEV[Version: x.x.x-dev]
+        VERSION_RC[Version: x.x.x-rc]
+        VERSION_PROD[Version: x.x.x]
+        VERSION_HOTFIX[Version: x.x.x-hotfix]
+    end
+
+    subgraph "CD Deployments"
+        DEV[dev Environment<br/>Auto-deploy]
+        QA[qa Environment<br/>Auto-deploy]
+        PROD[prod Environment<br/>Manual approval]
+    end
+
+    FEATURE --> BUILD
+    BUILD -.no deploy.-> FEATURE
+
+    DEVELOP --> BUILD
+    BUILD --> VERSION_DEV
+    VERSION_DEV --> DEV
+
+    RELEASE --> BUILD
+    BUILD --> VERSION_RC
+    VERSION_RC --> QA
+
+    MASTER --> BUILD
+    BUILD --> VERSION_PROD
+    VERSION_PROD --> PROD
+
+    HOTFIX --> BUILD
+    BUILD --> VERSION_HOTFIX
+    VERSION_HOTFIX --> DEV
+
+    style DEV fill:#90EE90
+    style QA fill:#FFD700
+    style PROD fill:#FF6B6B
+```
+
+**Deployment Rules:**
+- ✅ **feature/*** → Build/test only, no deployment
+- ✅ **develop** → Auto-deploy to dev (~5 min)
+- ✅ **release/*** → Auto-deploy to qa (~5 min)
+- ⚠️  **master** → Manual approval required for prod
+- ⚠️  **hotfix/*** → Auto-deploy to dev for testing
+
+📖 **For workflow details and usage examples**, see [Git Workflow Documentation](GIT-WORKFLOW.md)
 
 ---
 

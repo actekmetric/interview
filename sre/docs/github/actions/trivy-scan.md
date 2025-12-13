@@ -43,7 +43,7 @@ Scans Docker images for security vulnerabilities with configurable thresholds an
 - name: Scan Docker Image
   uses: ./.github/actions/trivy-scan
   with:
-    image-ref: ghcr.io/myorg/backend:1.0.0
+    image-ref: {account-id}.dkr.ecr.us-east-1.amazonaws.com/backend:1.0.0
 ```
 
 ### Scan Private Image
@@ -52,7 +52,7 @@ Scans Docker images for security vulnerabilities with configurable thresholds an
 - name: Scan Private Image
   uses: ./.github/actions/trivy-scan
   with:
-    image-ref: ghcr.io/myorg/backend:latest
+    image-ref: {account-id}.dkr.ecr.us-east-1.amazonaws.com/backend:latest
     registry-username: ${{ github.actor }}
     registry-password: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -63,7 +63,7 @@ Scans Docker images for security vulnerabilities with configurable thresholds an
 - name: Scan and Fail on Issues
   uses: ./.github/actions/trivy-scan
   with:
-    image-ref: ghcr.io/myorg/backend:1.0.0
+    image-ref: {account-id}.dkr.ecr.us-east-1.amazonaws.com/backend:1.0.0
     severity: CRITICAL,HIGH
     exit-code: '1'  # Fail the build
 ```
@@ -74,7 +74,7 @@ Scans Docker images for security vulnerabilities with configurable thresholds an
 - name: Scan Critical Only
   uses: ./.github/actions/trivy-scan
   with:
-    image-ref: ghcr.io/myorg/backend:1.0.0
+    image-ref: {account-id}.dkr.ecr.us-east-1.amazonaws.com/backend:1.0.0
     severity: CRITICAL
     exit-code: '0'
 ```
@@ -85,7 +85,7 @@ Scans Docker images for security vulnerabilities with configurable thresholds an
 - name: Scan Fixable Issues Only
   uses: ./.github/actions/trivy-scan
   with:
-    image-ref: ghcr.io/myorg/backend:1.0.0
+    image-ref: {account-id}.dkr.ecr.us-east-1.amazonaws.com/backend:1.0.0
     severity: CRITICAL,HIGH
     ignore-unfixed: true
     exit-code: '1'
@@ -97,7 +97,7 @@ Scans Docker images for security vulnerabilities with configurable thresholds an
 - name: Scan Without Security Tab
   uses: ./.github/actions/trivy-scan
   with:
-    image-ref: ghcr.io/myorg/backend:1.0.0
+    image-ref: {account-id}.dkr.ecr.us-east-1.amazonaws.com/backend:1.0.0
     upload-sarif: false
 ```
 
@@ -107,7 +107,7 @@ Scans Docker images for security vulnerabilities with configurable thresholds an
 - name: Scan Large Image
   uses: ./.github/actions/trivy-scan
   with:
-    image-ref: ghcr.io/myorg/large-app:1.0.0
+    image-ref: {account-id}.dkr.ecr.us-east-1.amazonaws.com/large-app:1.0.0
     timeout: 20m
 ```
 
@@ -297,7 +297,7 @@ The action generates a summary like:
 ```
 ## 🔒 Security Scan Results
 
-**Image:** `ghcr.io/myorg/backend:1.0.0`
+**Image:** `{account-id}.dkr.ecr.us-east-1.amazonaws.com/backend:1.0.0`
 **Severity Filter:** `CRITICAL,HIGH`
 **Ignore Unfixed:** false
 

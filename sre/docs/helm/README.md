@@ -2,6 +2,26 @@
 
 A comprehensive, production-ready Helm chart for deploying microservices on Kubernetes with built-in observability, autoscaling, and high availability features.
 
+## Repository Setup
+
+**Repository URL:** `s3://tekmetric-helm-charts-{account-id}/charts/`
+
+Charts are stored in an **S3 bucket** and accessed via the Helm S3 plugin.
+
+```bash
+# Install Helm S3 plugin (if not already installed)
+helm plugin install https://github.com/hypnoglow/helm-s3.git
+
+# Add the S3 repository
+helm repo add tekmetric s3://tekmetric-helm-charts-{account-id}/charts/
+helm repo update
+
+# Search available charts
+helm search repo tekmetric
+```
+
+> **Note:** Charts are published to S3 via GitHub Actions. The S3 bucket serves as the Helm repository.
+
 ## Features
 
 - **Modern Kubernetes Patterns**: Uses current best practices for deployments, services, and configurations
@@ -18,13 +38,6 @@ A comprehensive, production-ready Helm chart for deploying microservices on Kube
 - Helm 3.8+
 
 ## Installation
-
-### Add the Repository
-
-```bash
-helm repo add tekmetric https://actekmetric.github.io/interview/
-helm repo update
-```
 
 ### Install the Chart
 

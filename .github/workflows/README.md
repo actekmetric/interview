@@ -200,7 +200,7 @@ The workflows are organized into two main categories:
 **Workflow Jobs**:
 
 **Job 1: Build and Test**
-- Compile Java code with Maven (JDK 8)
+- Compile Java code with Maven (JDK 17)
 - Run unit tests
 - Generate semantic version: `<base>.<build>-<sha>-SNAPSHOT`
 - Build multi-platform Docker image (amd64, arm64)
@@ -409,7 +409,7 @@ Actions → Stop Environment → qa
 
 **Issue**: Maven build fails
 **Cause**: Usually dependency resolution or compilation errors
-**Solution**: Check JDK version (must be 8), review pom.xml dependencies
+**Solution**: Check JDK version (must be 17), review pom.xml dependencies
 
 **Issue**: Docker push fails with authentication error
 **Solution**: Verify `packages: write` permission in workflow
