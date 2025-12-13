@@ -4,21 +4,26 @@ A comprehensive, production-ready Helm chart for deploying microservices on Kube
 
 ## Repository Setup
 
-**Repository URL:** `s3://tekmetric-helm-charts-{account-id}/charts/`
+**Repository URL:** `s3://tekmetric-helm-charts-{environment}/charts/`
 
-Charts are stored in an **S3 bucket** and accessed via the Helm S3 plugin.
+Charts are stored in an **S3 bucket** (per environment) and accessed via the Helm S3 plugin.
 
 ```bash
 # Install Helm S3 plugin (if not already installed)
 helm plugin install https://github.com/hypnoglow/helm-s3.git
 
-# Add the S3 repository
-helm repo add tekmetric s3://tekmetric-helm-charts-{account-id}/charts/
+# Add the S3 repository (example for dev environment)
+helm repo add tekmetric-dev s3://tekmetric-helm-charts-dev/charts/
 helm repo update
 
 # Search available charts
-helm search repo tekmetric
+helm search repo tekmetric-dev
 ```
+
+**Available Repositories:**
+- Dev: `s3://tekmetric-helm-charts-dev/charts/`
+- QA: `s3://tekmetric-helm-charts-qa/charts/`
+- Prod: `s3://tekmetric-helm-charts-prod/charts/`
 
 > **Note:** Charts are published to S3 via GitHub Actions. The S3 bucket serves as the Helm repository.
 
