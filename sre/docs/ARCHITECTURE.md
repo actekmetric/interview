@@ -331,7 +331,8 @@ graph TB
     subgraph "Custom Actions"
         TF_SETUP[terraform-setup]
         AWS_AUTH[aws-assume-role]
-        DOCKER_BUILD[docker-build-push]
+        DOCKER_BUILD[docker-build]
+        ECR_PUB[ecr-publish]
         TRIVY[trivy-scan]
         HELM_PUB[helm-publish]
         HELM_DEP[helm-deploy]
@@ -342,6 +343,7 @@ graph TB
     TF --> AWS_AUTH
 
     CI --> DOCKER_BUILD
+    CI --> ECR_PUB
     CI --> TRIVY
     CI --> HELM_PUB
 

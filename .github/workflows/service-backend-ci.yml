@@ -119,29 +119,16 @@ jobs:
           echo "🚀 Should Deploy: ${SHOULD_DEPLOY}"
           echo "🌿 Branch: ${BRANCH_NAME}"
 
-      - name: Configure AWS credentials
-        if: steps.version.outputs.should-deploy == 'true' && github.event_name != 'pull_request'
-        uses: ./.github/actions/aws-assume-role
-        with:
-          environment: dev
-          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
-          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
-          aws-region: us-east-1
-
-      - name: Build and Push Docker Image to ECR
+      - name: Build Docker Image
         id: docker
-        uses: ./.github/actions/docker-build-push
+        uses: ./.github/actions/docker-build
         with:
           context: ./backend
           dockerfile: docker/Dockerfile
           platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
-          registry: ${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
-          registry-type: ${{ steps.version.outputs.should-deploy == 'true' && github.event_name != 'pull_request' && 'ecr' || '' }}
-          aws-region: us-east-1
           image-name: backend
           image-tag: ${{ steps.version.outputs.version }}
-          push: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && steps.version.outputs.should-deploy == 'true' }}
-          tag-latest: false
+          load: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
 
       - name: Scan Docker Image for Vulnerabilities
         uses: ./.github/actions/trivy-scan
@@ -151,6 +138,25 @@ jobs:
           exit-code: '0'
           ignore-unfixed: false
           upload-sarif: true
+
+      - name: Configure AWS credentials
+        if: steps.version.outputs.should-deploy == 'true' && github.event_name != 'pull_request'
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
+          aws-region: us-east-1
+
+      - name: Publish to ECR
+        id: ecr
+        if: steps.version.outputs.should-deploy == 'true' && github.event_name != 'pull_request'
+        uses: ./.github/actions/ecr-publish
+        with:
+          ecr-registry: ${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+          image-name: backend
+          source-tag: ${{ steps.version.outputs.version }}
+          target-tag: ${{ steps.version.outputs.version }}
 
       - name: Save build metadata for CD
         if: steps.version.outputs.should-deploy == 'true'

@@ -226,7 +226,8 @@ graph LR
 **Reusable building blocks:**
 - `terraform-setup`: Install Terraform/Terragrunt with caching
 - `aws-assume-role`: OIDC-based AWS authentication
-- `docker-build-push`: Multi-platform Docker builds
+- `docker-build`: Local Docker image builds (no push)
+- `ecr-publish`: Publish images to Amazon ECR
 - `trivy-scan`: Container security scanning
 - `helm-publish`: Chart validation and publishing
 - `helm-deploy`: Kubernetes deployment

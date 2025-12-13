@@ -204,9 +204,12 @@ The workflows are organized into two main categories:
 - Run unit tests
 - Detect branch and determine target environment
 - Generate semantic version: `<base>.<build>-<sha>-<suffix>` (suffix based on branch)
-- Build multi-platform Docker image (amd64, arm64)
-- Scan image for vulnerabilities with Trivy
-- Push image to ECR (only for deployable branches: develop, release/*, master, hotfix/*)
+- Build Docker image locally (always runs, even for PRs)
+  - Single platform (amd64) for PRs to enable scanning
+  - Multi-platform (amd64, arm64) for deployable branches
+- Scan image for vulnerabilities with Trivy (always runs)
+- Configure AWS credentials (only for deployable branches: develop, release/*, master, hotfix/*)
+- Publish image to ECR (only for deployable branches, not PRs)
 
 **Job 2: Publish Helm Chart**
 - Only runs for deployable branches
@@ -230,14 +233,14 @@ Final version: 1.0.0.42-abc12345-SNAPSHOT
 ```
 
 **PR vs Push Behavior**:
-| Action | Pull Request | Push to Main |
+| Action | Pull Request | Push to Deployable Branch |
 |--------|-------------|--------------|
-| Build | ✅ Single platform | ✅ Multi-platform |
+| Build | ✅ Single platform (amd64) | ✅ Multi-platform (amd64, arm64) |
 | Test | ✅ Always | ✅ Always |
-| Push Image | ❌ No | ✅ Yes |
-| Tag Latest | ❌ No | ✅ Yes |
+| Security Scan | ✅ Always | ✅ Always |
+| AWS Auth | ❌ No | ✅ Yes |
+| Push to ECR | ❌ No | ✅ Yes |
 | Publish Chart | ❌ No | ✅ Yes |
-| Security Scan | ✅ Yes | ✅ Yes |
 
 **Usage**:
 ```bash
