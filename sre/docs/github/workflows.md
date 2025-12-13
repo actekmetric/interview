@@ -197,30 +197,47 @@ The workflows are organized into two main categories:
 - Pull requests to main/master
 - Manual dispatch
 
-**Workflow Jobs**:
+**Pipeline Stages** (separate jobs for better visibility):
 
-**Job 1: Build and Test**
+**Stage 1: Build and Test**
 - Compile Java code with Maven (JDK 8)
 - Run unit tests
 - Detect branch and determine target environment
 - Generate semantic version: `<base>.<build>-<sha>-<suffix>` (suffix based on branch)
-- Build Docker image locally (always runs, even for PRs)
+- Upload JAR artifacts for Docker build
+
+**Stage 2: Docker Build**
+- Download build artifacts (JAR files)
+- Build Docker image locally
   - Single platform (amd64) for PRs to enable scanning
   - Multi-platform (amd64, arm64) for deployable branches
-- Scan image for vulnerabilities with Trivy (always runs)
-- Configure AWS credentials (only for deployable branches: develop, release/*, master, hotfix/*)
-- Publish image to ECR (only for deployable branches, not PRs)
+- Output image reference for subsequent stages
 
-**Job 2: Publish Helm Chart**
-- Only runs for deployable branches
-- Publishes chart to S3 bucket
-- Updates chart version and appVersion to match Docker image
-- Validates chart before publishing
+**Stage 3: Security Scan** (PRs only)
+- Download build artifacts
+- Build single-platform Docker image (amd64) for scanning
+- Scan image for vulnerabilities with Trivy
+- Upload SARIF results to GitHub Security tab
 
-**Job 3: Workflow Summary**
-- Generates summary of all jobs
-- Shows version and image reference
-- Provides pull command for Docker image
+**Stage 4: Publish Docker Image** (deployable branches only)
+- Download build artifacts
+- Build single-platform Docker image (amd64)
+- Configure AWS credentials
+- Publish image to ECR
+- Save build metadata for CD workflow
+
+**Stage 5: Publish Helm Chart** (deployable branches only)
+- Configure AWS credentials
+- Install Helm and helm-s3 plugin
+- Download chart dependencies
+- Package chart with Docker image version as appVersion
+- Push chart to S3 repository
+
+**Stage 6: Workflow Summary** (always runs)
+- Generates comprehensive pipeline status
+- Shows each stage result with numbered indicators (1️⃣-5️⃣)
+- Displays version, image reference, and ECR URI
+- Provides pull command for published images
 
 **Versioning**:
 ```bash
@@ -232,15 +249,54 @@ Commit SHA: abc12345
 Final version: 1.0.0.42-abc12345-SNAPSHOT
 ```
 
-**PR vs Push Behavior**:
-| Action | Pull Request | Push to Deployable Branch |
-|--------|-------------|--------------|
-| Build | ✅ Single platform (amd64) | ✅ Multi-platform (amd64, arm64) |
-| Test | ✅ Always | ✅ Always |
-| Security Scan | ✅ Always | ✅ Always |
-| AWS Auth | ❌ No | ✅ Yes |
-| Push to ECR | ❌ No | ✅ Yes |
-| Publish Chart | ❌ No | ✅ Yes |
+**Pipeline Execution by Event Type**:
+
+| Stage | Pull Request | Feature Branch | Deployable Branch (develop/release/hotfix) |
+|-------|-------------|----------------|-------------------------------------------|
+| 1️⃣ Build and Test | ✅ Always | ✅ Always | ✅ Always |
+| 2️⃣ Docker Build | ✅ Single platform | ✅ Multi-platform | ✅ Multi-platform |
+| 3️⃣ Security Scan | ✅ Yes | ❌ No | ❌ No |
+| 4️⃣ Publish Docker Image | ❌ No | ❌ No | ✅ Yes |
+| 5️⃣ Publish Helm Chart | ❌ No | ❌ No | ✅ Yes |
+| 6️⃣ Workflow Summary | ✅ Always | ✅ Always | ✅ Always |
+
+**Pipeline Flow Visualization**:
+```
+┌─────────────────────┐
+│ 1️⃣ Build and Test  │
+│ (Maven + JUnit)     │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│ 2️⃣ Docker Build     │
+│ (Multi-platform)    │
+└──────┬──────────────┘
+       │
+       ├─────────────────────────┐
+       │                         │
+       ▼                         ▼
+┌──────────────┐      ┌─────────────────────┐
+│ 3️⃣ Security  │      │ 4️⃣ Publish Docker   │
+│    Scan      │      │    Image (ECR)      │
+│ (PRs only)   │      │ (Deployable only)   │
+└──────────────┘      └──────────┬──────────┘
+                                 │
+                                 ▼
+                      ┌─────────────────────┐
+                      │ 5️⃣ Publish Helm     │
+                      │    Chart (S3)       │
+                      │ (Deployable only)   │
+                      └──────────┬──────────┘
+                                 │
+       ┌─────────────────────────┴─────────────────────────┐
+       │                                                     │
+       ▼                                                     ▼
+┌────────────────────────────────────────────────────────────┐
+│ 6️⃣ Workflow Summary (Always runs)                         │
+│ Shows status of all stages with numbered indicators       │
+└────────────────────────────────────────────────────────────┘
+```
 
 **Usage**:
 ```bash
