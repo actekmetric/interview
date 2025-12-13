@@ -1,6 +1,9 @@
 # Runtime stage - Eclipse Temurin (recommended OpenJDK distribution)
 FROM eclipse-temurin:17-jre-alpine
 
+# Update Alpine packages to get latest security patches (including libpng fix)
+RUN apk upgrade --no-cache
+
 # Create tomcat user and group with specific UID/GID for consistency
 RUN addgroup -g 1000 tomcat && \
     adduser -D -u 1000 -G tomcat -h /opt/tomcat -s /sbin/nologin tomcat
