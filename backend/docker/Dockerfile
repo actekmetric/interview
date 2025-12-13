@@ -1,8 +1,8 @@
 # Runtime stage - Eclipse Temurin (recommended OpenJDK distribution)
 # Using specific Java version to ensure consistent, reproducible builds
 # Update this tag periodically to get latest security patches
-# Last updated: 2025-12-13 (includes fixes for CVE-2025-64720, CVE-2025-65018, CVE-2025-66293)
-FROM eclipse-temurin:17.0.17_10-jre-alpine-3.22
+# Last updated: 2025-12-13
+FROM eclipse-temurin:25-jre-alpine
 
 # Create tomcat user and group with specific UID/GID for consistency
 RUN addgroup -g 1000 tomcat && \

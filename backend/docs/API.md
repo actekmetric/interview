@@ -11,8 +11,8 @@ This document describes all available REST API endpoints for the Tekmetric Inter
 - EKS (LoadBalancer): `http://<load-balancer-dns>:8080`
 
 **Technology Stack:**
-- Spring Boot 3.4.5 (upgraded to resolve security issues)
-- Java 17 (upgraded to resolve security issues)
+- Spring Boot 3.5.6 (upgraded to resolve security issues)
+- Java 25 (upgraded to resolve security issues)
 - H2 In-Memory Database
 - Spring Boot Actuator for observability
 
