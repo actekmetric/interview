@@ -195,7 +195,7 @@ graph LR
 
 **Backend CI Workflow (service-backend-ci.yml):**
 1. **Build & Test:**
-   - Maven compilation (Java 8)
+   - Maven compilation (Java 17)
    - Unit test execution
    - Branch detection and environment mapping
    - Version generation: `<base>.<build>-<sha>-<suffix>` (suffix: `-dev`, `-rc`, or none)

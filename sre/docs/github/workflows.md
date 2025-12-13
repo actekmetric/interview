@@ -200,7 +200,7 @@ The workflows are organized into two main categories:
 **Pipeline Stages** (separate jobs for better visibility):
 
 **Stage 1: Build and Test**
-- Compile Java code with Maven (JDK 8)
+- Compile Java code with Maven (JDK 17)
 - Run unit tests
 - Detect branch and determine target environment
 - Generate semantic version: `<base>.<build>-<sha>-<suffix>` (suffix based on branch)

@@ -8,7 +8,7 @@
 
 #### Prerequisites
 - Maven
-- Java 1.8 (or higher, update version in pom.xml if needed)
+- Java 17 (LTS version required for Spring Boot 3.x)
 
 #### Fork the repository and clone it locally
 - https://github.com/Tekmetric/interview.git
