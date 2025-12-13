@@ -19,9 +19,10 @@ dependency "iam" {
 }
 
 locals {
-  environment_vars = read_terragrunt_config(find_in_parent_folders("account.hcl"))
-  environment      = local.environment_vars.locals.environment
-  k8s_version      = local.environment_vars.locals.k8s_version
+  environment_vars         = read_terragrunt_config(find_in_parent_folders("account.hcl"))
+  environment              = local.environment_vars.locals.environment
+  k8s_version              = local.environment_vars.locals.k8s_version
+  enable_cloudwatch_logging = local.environment_vars.locals.enable_cloudwatch_logging
 }
 
 inputs = {
@@ -30,4 +31,7 @@ inputs = {
 
   # IRSA roles from IAM module
   ebs_csi_driver_role_arn = dependency.iam.outputs.ebs_csi_driver_role_arn
+
+  # CloudWatch logging
+  enable_cloudwatch_observability = local.enable_cloudwatch_logging
 }

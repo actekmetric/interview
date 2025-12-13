@@ -196,7 +196,7 @@ graph TB
 - **Managed Control Plane:** AWS handles API server, etcd, etc.
 - **Kubernetes 1.34:** Latest stable version (configurable per environment)
 - **Managed Node Groups:** Auto-scaling, auto-healing
-- **EKS Addons:** VPC CNI for networking, CoreDNS for DNS, EBS CSI for storage
+- **EKS Addons:** VPC CNI for networking, CoreDNS for DNS, EBS CSI for storage, CloudWatch Observability for logging
 - **IRSA Enabled:** IAM Roles for Service Accounts for pod-level permissions
 
 ---
@@ -682,13 +682,15 @@ graph TB
     end
 
     subgraph "Kubernetes"
-        POD[Pod]
+        POD[Pod<br/>stdout/stderr]
         SVC[Service]
         ANNOTATIONS[Pod Annotations<br/>prometheus.io/*]
+        FLUENT[Fluent Bit DaemonSet<br/>CloudWatch Observability Add-on]
     end
 
     subgraph "AWS"
-        CW_LOGS[CloudWatch Logs<br/>EKS Cluster Logs]
+        CW_LOGS[CloudWatch Logs<br/>/aws/containerinsights/]
+        CW_CONTROL[CloudWatch Logs<br/>EKS Control Plane]
         FLOW_LOGS[VPC Flow Logs]
     end
 
@@ -698,8 +700,9 @@ graph TB
     ACTUATOR -->|/actuator/metrics| POD
     ACTUATOR -->|/actuator/prometheus| POD
 
+    POD -->|logs to stdout| FLUENT
+    FLUENT -->|ships logs| CW_LOGS
     POD --> ANNOTATIONS
-    POD -->|logs| CW_LOGS
     POD --> SVC
 
     SVC -.ready for.-> PROMETHEUS[Prometheus<br/>(Not yet deployed)]
@@ -710,7 +713,9 @@ graph TB
 - ✅ Spring Boot Actuator enabled
 - ✅ Prometheus metrics exposed
 - ✅ OpenTelemetry agent integrated
-- ✅ CloudWatch logging enabled
+- ✅ CloudWatch Observability add-on deployed (Fluent Bit)
+- ✅ Pod logs automatically shipped to CloudWatch
+- ✅ CloudWatch control plane logging enabled
 - ✅ Health probes configured
 - ⏳ Prometheus not deployed (metrics not collected)
 - ⏳ OTEL collector not deployed (traces not collected)

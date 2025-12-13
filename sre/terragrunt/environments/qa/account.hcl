@@ -14,4 +14,5 @@ locals {
   flow_logs_retention_days       = 14
   enable_kms_encryption          = false
   single_nat_gateway             = true  # Cost optimization for QA
+  enable_cloudwatch_logging      = true  # Enable CloudWatch logging for pods
 }

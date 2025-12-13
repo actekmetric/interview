@@ -27,6 +27,14 @@ data "aws_eks_addon_version" "ebs_csi_driver" {
   most_recent        = true
 }
 
+data "aws_eks_addon_version" "cloudwatch_observability" {
+  count = var.enable_cloudwatch_observability ? 1 : 0
+
+  addon_name         = "amazon-cloudwatch-observability"
+  kubernetes_version = var.cluster_version
+  most_recent        = true
+}
+
 # VPC CNI Addon
 resource "aws_eks_addon" "vpc_cni" {
   cluster_name = var.cluster_name
@@ -92,6 +100,26 @@ resource "aws_eks_addon" "ebs_csi_driver" {
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "PRESERVE"
   service_account_role_arn    = var.ebs_csi_driver_role_arn
+
+  timeouts {
+    create = "30m"
+    update = "30m"
+    delete = "15m"
+  }
+
+  tags = local.common_tags
+}
+
+# CloudWatch Observability Addon (Fluent Bit for logging)
+resource "aws_eks_addon" "cloudwatch_observability" {
+  count = var.enable_cloudwatch_observability ? 1 : 0
+
+  cluster_name = var.cluster_name
+  addon_name   = "amazon-cloudwatch-observability"
+
+  addon_version               = data.aws_eks_addon_version.cloudwatch_observability[0].version
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "PRESERVE"
 
   timeouts {
     create = "30m"

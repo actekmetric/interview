@@ -118,7 +118,94 @@ podAnnotations:
 
 ### 4. CloudWatch Logging
 
-**Status:** ✅ Implemented at EKS level
+**Status:** ✅ Fully Implemented
+
+CloudWatch logging is enabled at multiple levels: EKS control plane, pod logs, and VPC flow logs.
+
+#### 4.1 Pod Logs (CloudWatch Observability Add-on)
+
+**Implementation:** EKS Add-on with Fluent Bit DaemonSet
+
+The CloudWatch Observability add-on automatically collects logs from all pods in the cluster and ships them to CloudWatch Log Groups.
+
+**What It Does:**
+- Installs Fluent Bit as a DaemonSet on all EKS nodes
+- Automatically reads container stdout/stderr logs from `/var/log/containers/`
+- Ships logs to CloudWatch with metadata (pod name, namespace, container, node)
+- No application code changes required - works with existing logging
+
+**Terraform Configuration:**
+```hcl
+# Enabled via eks-addons module
+resource "aws_eks_addon" "cloudwatch_observability" {
+  cluster_name = var.cluster_name
+  addon_name   = "amazon-cloudwatch-observability"
+
+  addon_version = data.aws_eks_addon_version.cloudwatch_observability.version
+}
+```
+
+**Terragrunt Configuration:**
+```hcl
+# sre/terragrunt/environments/{env}/account.hcl
+locals {
+  enable_cloudwatch_logging = true  # Enabled by default
+}
+
+# sre/terragrunt/environments/{env}/eks-addons/terragrunt.hcl
+inputs = {
+  enable_cloudwatch_observability = local.enable_cloudwatch_logging
+}
+```
+
+**CloudWatch Log Groups:**
+```
+/aws/containerinsights/{cluster-name}/application      # Pod logs (stdout/stderr)
+/aws/containerinsights/{cluster-name}/dataplane        # Kubelet, kube-proxy logs
+/aws/containerinsights/{cluster-name}/host             # Node-level logs
+```
+
+**Log Structure Example:**
+```json
+{
+  "log": "2025-01-13 10:30:45 [http-nio-8080-exec-1] INFO  c.i.resource.WelcomeResource - Processing request",
+  "stream": "stdout",
+  "kubernetes": {
+    "pod_name": "backend-abc123",
+    "namespace_name": "backend-services",
+    "container_name": "backend",
+    "host": "ip-10-0-1-123.ec2.internal"
+  },
+  "time": "2025-01-13T10:30:45.123456789Z"
+}
+```
+
+**Accessing Pod Logs in CloudWatch:**
+```bash
+# Tail application logs
+aws logs tail /aws/containerinsights/tekmetric-dev/application --follow
+
+# Filter by namespace
+aws logs tail /aws/containerinsights/tekmetric-dev/application \
+  --filter-pattern "backend-services" \
+  --follow
+
+# Filter by pod name
+aws logs tail /aws/containerinsights/tekmetric-dev/application \
+  --filter-pattern "backend-abc123" \
+  --since 1h
+
+# CloudWatch Insights query (in AWS Console)
+fields @timestamp, log, kubernetes.pod_name, kubernetes.namespace_name
+| filter kubernetes.namespace_name = "backend-services"
+| filter log like /ERROR/
+| sort @timestamp desc
+| limit 100
+```
+
+#### 4.2 EKS Control Plane Logs
+
+**Status:** ✅ Enabled
 
 EKS cluster audit logs and control plane logs are forwarded to CloudWatch.
 
@@ -126,25 +213,50 @@ EKS cluster audit logs and control plane logs are forwarded to CloudWatch.
 - API server logs
 - Audit logs
 - Authenticator logs
-- Controller manager logs
-- Scheduler logs
 
-**VPC Flow Logs:**
+**Log Group:**
+```
+/aws/eks/tekmetric-dev/cluster
+```
+
+**Accessing Control Plane Logs:**
+```bash
+aws logs tail /aws/eks/tekmetric-dev/cluster --follow
+```
+
+#### 4.3 VPC Flow Logs
+
+**Status:** ✅ Enabled
+
+**Purpose:**
 - Network traffic monitoring
 - Security analysis
 - Troubleshooting connectivity issues
 
-**Accessing Logs:**
-```bash
-# View in CloudWatch
-aws logs tail /aws/eks/tekmetric-dev/cluster --follow
+#### 4.4 Direct Pod Logs (kubectl)
 
+For real-time debugging, you can still access logs directly via kubectl:
+
+```bash
 # View pod logs directly
 kubectl logs -f deployment/backend -n backend-services
 
+# Last 100 lines
+kubectl logs --tail=100 deployment/backend -n backend-services
+
+# Logs from previous container (after restart)
+kubectl logs --previous deployment/backend -n backend-services
+
 # View logs for all pods in namespace
 kubectl logs -f -l app=backend -n backend-services --all-containers=true
+
+# Export logs to file
+kubectl logs deployment/backend -n backend-services > backend.log
 ```
+
+**When to Use CloudWatch vs kubectl:**
+- **kubectl**: Real-time debugging, active troubleshooting, following live logs
+- **CloudWatch**: Historical log analysis, searching across time ranges, querying multiple pods, long-term retention, compliance
 
 ---
 
@@ -545,33 +657,63 @@ kubectl logs deployment/backend -n backend-services > backend.log
 
 ---
 
-### Log Aggregation (Future)
+### Log Aggregation
+
+**Current Solution: CloudWatch Logs Insights ✅**
+
+CloudWatch Logs Insights is already available with our CloudWatch Observability add-on implementation.
+
+**Benefits:**
+- ✅ Already collecting pod logs
+- ✅ AWS-native solution, no additional infrastructure
+- ✅ Query language for log analysis
+- ✅ Pay-per-query pricing ($0.005 per GB scanned)
+- ✅ Integration with CloudWatch dashboards and alarms
+
+**Example CloudWatch Insights Queries:**
+
+**Find all errors in backend service:**
+```
+fields @timestamp, log, kubernetes.pod_name
+| filter kubernetes.namespace_name = "backend-services"
+| filter log like /ERROR/
+| sort @timestamp desc
+| limit 100
+```
+
+**Calculate request latency statistics:**
+```
+fields @timestamp, log
+| filter log like /Request completed/
+| parse log /in (?<latency>\d+)ms/
+| stats avg(latency), max(latency), pct(latency, 95) by bin(5m)
+```
+
+**Count errors by pod:**
+```
+fields kubernetes.pod_name
+| filter kubernetes.namespace_name = "backend-services"
+| filter log like /ERROR/
+| stats count() by kubernetes.pod_name
+```
+
+**Alternative Options (Future Consideration):**
 
 **Option 1: ELK Stack (Elasticsearch, Logstash, Kibana)**
 - Centralized log storage
 - Full-text search
 - Advanced querying
 - Visualization and dashboards
+- **When to consider:** Need advanced text search, complex log correlation, or regulatory requirements
 
 **Option 2: Loki (Grafana Loki)**
 - Lightweight alternative to ELK
 - Better integration with Grafana
 - Lower resource requirements
 - Label-based indexing
+- **When to consider:** Already using Grafana, want unified metrics + logs interface
 
-**Option 3: CloudWatch Logs Insights**
-- Already collecting EKS logs
-- AWS-native solution
-- Query language for log analysis
-- No additional infrastructure
-
-**Example CloudWatch Insights Query:**
-```
-fields @timestamp, @message
-| filter @message like /ERROR/
-| sort @timestamp desc
-| limit 100
-```
+**Recommendation:** Start with CloudWatch Logs Insights (already available), evaluate alternatives if specific limitations are encountered
 
 ---
 
@@ -711,7 +853,9 @@ kubectl port-forward -n observability svc/jaeger-query 16686:16686
 - [x] Health probes configured
 - [x] Prometheus metrics exposed
 - [x] OpenTelemetry agent integrated
-- [x] CloudWatch logging enabled
+- [x] CloudWatch Observability add-on enabled (Fluent Bit)
+- [x] Pod logs automatically shipped to CloudWatch
+- [x] CloudWatch control plane logging enabled
 - [x] Helm chart annotations for Prometheus
 
 ### Phase 2: Metrics Collection (1-2 days)
@@ -809,25 +953,41 @@ kubectl port-forward -n observability svc/jaeger-query 16686:16686
 
 ## Cost Considerations
 
-**CloudWatch Logs:**
-- $0.50 per GB ingested
-- $0.03 per GB stored per month
-- Use log retention policies to control costs
+**CloudWatch Logs (Currently Enabled):**
+- **Ingestion:** $0.50 per GB
+- **Storage:** $0.03 per GB per month
+- **CloudWatch Observability add-on:** No additional charge for the add-on itself
+- **Estimated cost for backend service:**
+  - Dev: ~$5-10/month (low traffic, shorter retention)
+  - QA: ~$10-20/month (moderate traffic)
+  - Prod: ~$30-50/month (higher traffic, longer retention)
+- **Cost optimization:**
+  - Use log retention policies (7 days dev, 14 days qa, 30 days prod)
+  - Filter logs at Fluent Bit level if needed
+  - Use log sampling for high-volume debug logs
+  - Archive old logs to S3 for long-term storage ($0.023/GB/month)
 
 **Prometheus (Self-hosted):**
 - No per-metric costs
 - Infrastructure costs only (storage, compute)
 - Typically cheaper than managed solutions for moderate scale
+- **Estimated cost:** ~$20-40/month for EBS storage and compute
 
 **Managed Prometheus/Grafana (AWS AMP/AMG):**
 - AWS Managed Prometheus: $0.30 per million samples ingested
 - AWS Managed Grafana: $9/user/month
 - Consider for production at scale
+- **Estimated cost:** $100-200/month for moderate workload
 
-**Storage:**
-- Metrics: ~1-2 GB per service per month
-- Logs: Variable, depends on verbosity
-- Traces: ~100-500 MB per service per month (with sampling)
+**Storage Estimates:**
+- **Metrics:** ~1-2 GB per service per month
+- **Logs:** ~2-5 GB per service per month (varies with verbosity)
+- **Traces:** ~100-500 MB per service per month (with sampling)
+
+**Recommendation:**
+- Start with CloudWatch Logs (already enabled) + self-hosted Prometheus
+- Monitor costs for first month
+- Consider AWS Managed Prometheus/Grafana for production if team grows or complexity increases
 
 ---
 

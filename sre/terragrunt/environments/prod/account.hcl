@@ -14,4 +14,5 @@ locals {
   flow_logs_retention_days       = 30
   enable_kms_encryption          = true
   single_nat_gateway             = false  # HA with NAT per AZ
+  enable_cloudwatch_logging      = true  # Enable CloudWatch logging for pods
 }

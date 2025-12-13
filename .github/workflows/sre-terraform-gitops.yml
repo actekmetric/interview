@@ -145,12 +145,12 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.issue.number
             });
-            return pr.data.head.sha;
+            core.setOutput('sha', pr.data.head.sha);
 
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -198,12 +198,12 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.issue.number
             });
-            return pr.data.head.sha;
+            core.setOutput('sha', pr.data.head.sha);
 
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -355,12 +355,12 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.issue.number
             });
-            return pr.data.head.sha;
+            core.setOutput('sha', pr.data.head.sha);
 
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -373,7 +373,6 @@ jobs:
           account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
 
       - name: Terragrunt Apply
-        id: apply
         env:
           STAGE: ${{ needs.parse-command.outputs.stage }}
         run: |
@@ -467,12 +466,12 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.issue.number
             });
-            return pr.data.head.sha;
+            core.setOutput('sha', pr.data.head.sha);
 
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -612,12 +611,12 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.issue.number
             });
-            return pr.data.head.sha;
+            core.setOutput('sha', pr.data.head.sha);
 
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -722,12 +721,12 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.issue.number
             });
-            return pr.data.head.sha;
+            core.setOutput('sha', pr.data.head.sha);
 
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
@@ -869,12 +868,12 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.issue.number
             });
-            return pr.data.head.sha;
+            core.setOutput('sha', pr.data.head.sha);
 
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.pr-sha.outputs.result || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr-sha.outputs.sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Terraform and Terragrunt
         uses: ./.github/actions/terraform-setup
