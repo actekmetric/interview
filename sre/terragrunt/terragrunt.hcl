@@ -89,3 +89,4 @@ inputs = merge(
     k8s_version = local.k8s_version
   }
 )
+

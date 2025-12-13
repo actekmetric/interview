@@ -29,3 +29,4 @@
 # Root level files - require approval from multiple teams
 /README.md @actekmetric @tekmetric-org/backend-team @tekmetric-org/frontend-team @tekmetric-org/sre-team
 /.gitignore @actekmetric @tekmetric-org/sre-team
+
