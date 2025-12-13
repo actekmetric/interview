@@ -25,6 +25,12 @@ variable "cluster_autoscaler_role_arn" {
   default     = ""
 }
 
+variable "enable_cloudwatch_observability" {
+  description = "Enable CloudWatch Observability add-on for logging (Fluent Bit)"
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Additional tags for resources"
   type        = map(string)

@@ -83,6 +83,12 @@ variable "enable_addons" {
   default     = true
 }
 
+variable "enable_cloudwatch_observability" {
+  description = "Enable CloudWatch Observability add-on for logging (Fluent Bit)"
+  type        = bool
+  default     = true
+}
+
 variable "create_eks_admin_group" {
   description = "Create an IAM group for EKS cluster admins"
   type        = bool
