@@ -167,7 +167,7 @@ jobs:
           chart-repo-type: s3
           chart-repo-url: s3://tekmetric-helm-charts-dev/charts
           chart-repo-name: tekmetric-s3
-          namespace: default
+          namespace: backend-services
           values-file: sre/helm/backend/values-dev.yaml
           image-repository: ${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
           image-name: backend
