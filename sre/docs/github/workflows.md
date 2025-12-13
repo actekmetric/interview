@@ -197,26 +197,48 @@ The workflows are organized into two main categories:
 - Pull requests to main/master
 - Manual dispatch
 
-**Workflow Jobs**:
+**Pipeline Stages** (separate jobs for better visibility):
 
-**Job 1: Build and Test**
+**Stage 1: Build and Test**
 - Compile Java code with Maven (JDK 17)
 - Run unit tests
-- Generate semantic version: `<base>.<build>-<sha>-SNAPSHOT`
-- Build multi-platform Docker image (amd64, arm64)
-- Push image to GitHub Container Registry (only on push/dispatch)
+- Detect branch and determine target environment
+- Generate semantic version: `<base>.<build>-<sha>-<suffix>` (suffix based on branch)
+- Upload JAR artifacts for Docker build
+
+**Stage 2: Docker Build**
+- Download build artifacts (JAR files)
+- Build Docker image locally
+  - Single platform (amd64) for PRs to enable scanning
+  - Multi-platform (amd64, arm64) for deployable branches
+- Output image reference for subsequent stages
+
+**Stage 3: Security Scan** (PRs only)
+- Download build artifacts
+- Build single-platform Docker image (amd64) for scanning
 - Scan image for vulnerabilities with Trivy
+- Upload SARIF results to GitHub Security tab
 
-**Job 2: Publish Helm Chart**
-- Only runs on push to main/master
-- Publishes chart to GitHub Pages
-- Updates chart version and appVersion to match Docker image
-- Validates chart before publishing
+**Stage 4: Publish Docker Image** (deployable branches only)
+- Download build artifacts
+- Build single-platform Docker image (amd64)
+- Configure AWS credentials
+- Publish image to ECR
+- Save build metadata for CD workflow
 
-**Job 3: Workflow Summary**
-- Generates summary of all jobs
-- Shows version and image reference
-- Provides pull command for Docker image
+**Stage 5: Publish Helm Chart** (deployable branches only)
+- Configure AWS credentials
+- Install Helm and helm-s3 plugin
+- Download chart dependencies
+- Package chart with Docker image version as appVersion
+- Push chart to S3 repository
+
+**Stage 6: CI Pipeline Summary** (always runs)
+- Generates comprehensive CI pipeline status
+- Shows each stage result with numbered indicators (1️⃣-5️⃣)
+- Displays version, image reference, and ECR URI
+- Provides pull command for published images
+- Clearly labeled as "CI Pipeline Summary" to distinguish from CD workflow
 
 **Versioning**:
 ```bash
@@ -228,15 +250,54 @@ Commit SHA: abc12345
 Final version: 1.0.0.42-abc12345-SNAPSHOT
 ```
 
-**PR vs Push Behavior**:
-| Action | Pull Request | Push to Main |
-|--------|-------------|--------------|
-| Build | ✅ Single platform | ✅ Multi-platform |
-| Test | ✅ Always | ✅ Always |
-| Push Image | ❌ No | ✅ Yes |
-| Tag Latest | ❌ No | ✅ Yes |
-| Publish Chart | ❌ No | ✅ Yes |
-| Security Scan | ✅ Yes | ✅ Yes |
+**Pipeline Execution by Event Type**:
+
+| Stage | Pull Request | Feature Branch | Deployable Branch (develop/release/hotfix) |
+|-------|-------------|----------------|-------------------------------------------|
+| 1️⃣ Build and Test | ✅ Always | ✅ Always | ✅ Always |
+| 2️⃣ Docker Build | ✅ Single platform | ✅ Multi-platform | ✅ Multi-platform |
+| 3️⃣ Security Scan | ✅ Yes | ❌ No | ❌ No |
+| 4️⃣ Publish Docker Image | ❌ No | ❌ No | ✅ Yes |
+| 5️⃣ Publish Helm Chart | ❌ No | ❌ No | ✅ Yes |
+| 6️⃣ CI Pipeline Summary | ✅ Always | ✅ Always | ✅ Always |
+
+**Pipeline Flow Visualization**:
+```
+┌─────────────────────┐
+│ 1️⃣ Build and Test  │
+│ (Maven + JUnit)     │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│ 2️⃣ Docker Build     │
+│ (Multi-platform)    │
+└──────┬──────────────┘
+       │
+       ├─────────────────────────┐
+       │                         │
+       ▼                         ▼
+┌──────────────┐      ┌─────────────────────┐
+│ 3️⃣ Security  │      │ 4️⃣ Publish Docker   │
+│    Scan      │      │    Image (ECR)      │
+│ (PRs only)   │      │ (Deployable only)   │
+└──────────────┘      └──────────┬──────────┘
+                                 │
+                                 ▼
+                      ┌─────────────────────┐
+                      │ 5️⃣ Publish Helm     │
+                      │    Chart (S3)       │
+                      │ (Deployable only)   │
+                      └──────────┬──────────┘
+                                 │
+       ┌─────────────────────────┴─────────────────────────┐
+       │                                                     │
+       ▼                                                     ▼
+┌────────────────────────────────────────────────────────────┐
+│ 6️⃣ CI Pipeline Summary (Always runs)                      │
+│ Shows status of all stages with numbered indicators       │
+└────────────────────────────────────────────────────────────┘
+```
 
 **Usage**:
 ```bash
@@ -253,8 +314,8 @@ git push origin main
 ```
 
 **Artifacts**:
-- Docker image: `ghcr.io/<org>/backend:<version>`
-- Helm chart: Published to `https://<org>.github.io/<repo>`
+- Docker image: `{account-id}.dkr.ecr.us-east-1.amazonaws.com/backend:<version>`
+- Helm chart: Published to `s3://tekmetric-helm-charts-{account-id}/charts/`
 - Security scan: SARIF uploaded to GitHub Security tab
 
 ---
@@ -275,7 +336,7 @@ git push origin main
 5. Generate summary with installation instructions
 
 **Chart Repository**:
-- Published to: `https://<org>.github.io/<repo>/`
+- Published to: `s3://tekmetric-helm-charts-{account-id}/charts/`
 - Can be added as a Helm dependency in other charts
 
 **Usage as Dependency**:
@@ -284,7 +345,7 @@ git push origin main
 dependencies:
   - name: tekmetric-common-chart
     version: "1.0.0"
-    repository: "https://actekmetric.github.io/interview/"
+    repository: "s3://tekmetric-helm-charts-{account-id}/charts/"
 ```
 
 **Version Management**:
@@ -409,7 +470,7 @@ Actions → Stop Environment → qa
 
 **Issue**: Maven build fails
 **Cause**: Usually dependency resolution or compilation errors
-**Solution**: Check JDK version (must be 17), review pom.xml dependencies
+**Solution**: Check JDK version (must be 8), review pom.xml dependencies
 
 **Issue**: Docker push fails with authentication error
 **Solution**: Verify `packages: write` permission in workflow

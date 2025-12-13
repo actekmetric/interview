@@ -13,12 +13,16 @@ Complete GitOps infrastructure for multi-account AWS environments (dev, qa, prod
 
 ## 🔗 Quick Navigation
 
-- **[Complete Setup Guide](SETUP-GUIDE.md)** - Step-by-step setup from scratch (START HERE!)
-- **[CD Implementation Plan](CD-IMPLEMENTATION-PLAN.md)** - Roadmap for continuous deployment pipeline
-- [Staged Deployment Guide](STAGED-DEPLOYMENT.md) - Infrastructure deployment strategy
-- [Kubernetes Version Management](terragrunt/k8s-version-management.md) - How to upgrade K8s versions
-- [GitHub Workflows Documentation](../.github/workflows/README.md) - CI/CD workflows
-- [Custom Actions Documentation](../.github/actions/README.md) - Reusable GitHub Actions
+- **[Complete Setup Guide](docs/SETUP-GUIDE.md)** - Step-by-step setup from scratch (START HERE!)
+- **[Demo Script](docs/DEMO.md)** - Complete demonstration script for interviews
+- **[Presentation](docs/PRESENTATION.md)** - Interview presentation outline
+- [Staged Deployment Guide](docs/STAGED-DEPLOYMENT.md) - Infrastructure deployment strategy
+- [Git Workflow Strategy](docs/GIT-WORKFLOW.md) - Branch-based deployment workflow (develop→dev, release→qa, master→prod)
+- [Architecture Documentation](docs/ARCHITECTURE.md) - Detailed architecture diagrams
+- [Observability](docs/OBSERVABILITY.md) - Monitoring and observability strategy
+- [Kubernetes Version Management](docs/eks/K8S-UPGRADE.md) - How to upgrade K8s versions
+- [GitHub Workflows Documentation](docs/github/workflows.md) - CI/CD workflows
+- [GitHub Actions Documentation](docs/github/actions.md) - Reusable composite actions
 
 ## 🛠️ Technologies
 
@@ -86,7 +90,7 @@ sre/
 
 ## 🚀 Quick Start
 
-> **New to this infrastructure?** Follow the **[Complete Setup Guide](SETUP-GUIDE.md)** for step-by-step instructions from AWS account creation to first deployment.
+> **New to this infrastructure?** Follow the **[Complete Setup Guide](docs/SETUP-GUIDE.md)** for step-by-step instructions from AWS account creation to first deployment.
 
 ### For Existing Setups
 
@@ -136,7 +140,7 @@ Select Stage: all (runs all modules together)
    /terraform apply dev 3-iam         # Apply specific stage
    ```
 
-📖 **For detailed staged deployment guide**, see [STAGED-DEPLOYMENT.md](./STAGED-DEPLOYMENT.md)
+📖 **For detailed staged deployment guide**, see [STAGED-DEPLOYMENT.md](docs/STAGED-DEPLOYMENT.md)
 
 **Option B: Locally**
 
@@ -184,7 +188,7 @@ terragrunt run-all apply
 Actions → Terraform GitOps → Environment: dev → Stage: 1-networking → Action: apply
 (Repeat for stages 2-4)
 ```
-📖 See [STAGED-DEPLOYMENT.md](./STAGED-DEPLOYMENT.md) for detailed guide
+📖 See [STAGED-DEPLOYMENT.md](docs/STAGED-DEPLOYMENT.md) for detailed guide
 
 **Stop environment for cost savings (nights/weekends)**:
 ```
@@ -252,9 +256,9 @@ Detailed documentation for each Terraform module:
 
 ### Workflow Documentation
 
-- [GitHub Actions Documentation](../.github/actions/README.md) - Custom composite actions
-- [GitHub Workflows Documentation](../.github/workflows/README.md) - CI/CD workflows
-- [Staged Deployment Guide](STAGED-DEPLOYMENT.md) - Infrastructure deployment strategy
+- [GitHub Actions Documentation](docs/github/actions.md) - Custom composite actions
+- [GitHub Workflows Documentation](docs/github/workflows.md) - CI/CD workflows
+- [Staged Deployment Guide](docs/STAGED-DEPLOYMENT.md) - Infrastructure deployment strategy
 
 ## 📌 Version Management
 
@@ -290,7 +294,7 @@ locals {
 - Week 2: Upgrade qa after validation
 - Week 3: Upgrade prod after thorough testing
 
-📖 See [Kubernetes Version Management](terragrunt/k8s-version-management.md) for details
+📖 See [Kubernetes Version Management](docs/eks/K8S-UPGRADE.md) for details
 
 ## 🔧 Common Operations
 
@@ -435,7 +439,7 @@ kubectl get pods -A
 - [Terragrunt Documentation](https://terragrunt.gruntwork.io/)
 - [EKS Best Practices](https://aws.github.io/aws-eks-best-practices/)
 - [GitHub OIDC with AWS](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services)
-- [Helm Chart Publishing](../.github/workflows/README.md#6--common-helm-chart-sre-helm-common-chartyml) - See workflow documentation
+- [Helm Chart Publishing](docs/github/workflows.md#6--common-helm-chart-sre-helm-common-chartyml) - See workflow documentation
 
 ## 📞 Support
 

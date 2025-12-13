@@ -18,9 +18,12 @@ tekmetric-common-chart:
     managementPort: null
     annotations: {}
 
-  # Ingress configuration (disabled by default, enable if you have ingress controller)
+  # Ingress configuration
+  # For demo/local access alternatives if ingress controller not available:
+  # kubectl port-forward -n backend-services svc/backend 8080:8080
+  # Then access: http://localhost:8080/actuator/health
   ingress:
-    enabled: false
+    enabled: true
     className: nginx
     annotations: {}
     hosts:
