@@ -233,11 +233,12 @@ The workflows are organized into two main categories:
 - Package chart with Docker image version as appVersion
 - Push chart to S3 repository
 
-**Stage 6: Workflow Summary** (always runs)
-- Generates comprehensive pipeline status
+**Stage 6: CI Pipeline Summary** (always runs)
+- Generates comprehensive CI pipeline status
 - Shows each stage result with numbered indicators (1️⃣-5️⃣)
 - Displays version, image reference, and ECR URI
 - Provides pull command for published images
+- Clearly labeled as "CI Pipeline Summary" to distinguish from CD workflow
 
 **Versioning**:
 ```bash
@@ -258,7 +259,7 @@ Final version: 1.0.0.42-abc12345-SNAPSHOT
 | 3️⃣ Security Scan | ✅ Yes | ❌ No | ❌ No |
 | 4️⃣ Publish Docker Image | ❌ No | ❌ No | ✅ Yes |
 | 5️⃣ Publish Helm Chart | ❌ No | ❌ No | ✅ Yes |
-| 6️⃣ Workflow Summary | ✅ Always | ✅ Always | ✅ Always |
+| 6️⃣ CI Pipeline Summary | ✅ Always | ✅ Always | ✅ Always |
 
 **Pipeline Flow Visualization**:
 ```
@@ -293,7 +294,7 @@ Final version: 1.0.0.42-abc12345-SNAPSHOT
        │                                                     │
        ▼                                                     ▼
 ┌────────────────────────────────────────────────────────────┐
-│ 6️⃣ Workflow Summary (Always runs)                         │
+│ 6️⃣ CI Pipeline Summary (Always runs)                      │
 │ Shows status of all stages with numbered indicators       │
 └────────────────────────────────────────────────────────────┘
 ```
