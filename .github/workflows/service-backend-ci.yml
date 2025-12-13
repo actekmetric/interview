@@ -120,6 +120,7 @@ jobs:
           echo "🌿 Branch: ${BRANCH_NAME}"
 
       - name: Configure AWS credentials
+        if: steps.version.outputs.should-deploy == 'true' && github.event_name != 'pull_request'
         uses: ./.github/actions/aws-assume-role
         with:
           environment: dev
@@ -135,7 +136,7 @@ jobs:
           dockerfile: docker/Dockerfile
           platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           registry: ${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
-          registry-type: ecr
+          registry-type: ${{ steps.version.outputs.should-deploy == 'true' && github.event_name != 'pull_request' && 'ecr' || '' }}
           aws-region: us-east-1
           image-name: backend
           image-tag: ${{ steps.version.outputs.version }}
