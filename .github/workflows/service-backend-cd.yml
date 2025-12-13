@@ -183,6 +183,7 @@ jobs:
           wait: true
 
       - name: Run Smoke Tests
+        id: smoke-tests
         if: ${{ !inputs.skip-tests }}
         run: |
           echo "🧪 Running post-deployment smoke tests..."
@@ -273,6 +274,19 @@ jobs:
           echo ""
           echo "🎉 All smoke tests passed!"
           echo "✅ Deployment verified and healthy"
+
+      - name: Rollback on Smoke Test Failure
+        if: failure() && steps.smoke-tests.outcome == 'failure'
+        uses: ./.github/actions/helm-rollback
+        with:
+          cluster-name: tekmetric-dev
+          aws-region: us-east-1
+          release-name: backend
+          namespace: backend-services
+          timeout: 5m
+          wait: true
+          cleanup-on-fail: true
+          uninstall-if-first: true
 
       - name: Deployment summary
         if: always()

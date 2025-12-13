@@ -1,0 +1,241 @@
+name: 'Helm Rollback'
+description: 'Rolls back a Helm release to the previous revision'
+
+inputs:
+  cluster-name:
+    description: 'EKS cluster name (e.g., tekmetric-dev)'
+    required: true
+  aws-region:
+    description: 'AWS region where EKS cluster is located'
+    required: false
+    default: 'us-east-1'
+  release-name:
+    description: 'Helm release name to rollback'
+    required: true
+  namespace:
+    description: 'Kubernetes namespace'
+    required: false
+    default: 'default'
+  revision:
+    description: 'Specific revision to rollback to (leave empty for previous revision)'
+    required: false
+    default: ''
+  timeout:
+    description: 'Timeout for rollback operation (e.g., 5m)'
+    required: false
+    default: '5m'
+  wait:
+    description: 'Wait for rollback to complete'
+    required: false
+    default: 'true'
+  cleanup-on-fail:
+    description: 'Cleanup resources on rollback failure'
+    required: false
+    default: 'true'
+  uninstall-if-first:
+    description: 'Uninstall release if this is the first deployment (no previous revision)'
+    required: false
+    default: 'true'
+
+outputs:
+  rollback-status:
+    description: 'Status of rollback operation (success, failed, no-previous-revision)'
+    value: ${{ steps.rollback.outputs.status }}
+  previous-revision:
+    description: 'Revision number rolled back to'
+    value: ${{ steps.rollback.outputs.previous-revision }}
+  current-revision:
+    description: 'Current revision before rollback'
+    value: ${{ steps.rollback.outputs.current-revision }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Configure EKS access
+      shell: bash
+      run: |
+        echo "🔧 Configuring EKS access..."
+        aws eks update-kubeconfig \
+          --name ${{ inputs.cluster-name }} \
+          --region ${{ inputs.aws-region }}
+        echo "✅ EKS access configured"
+
+    - name: Check Helm release history
+      id: check-history
+      shell: bash
+      run: |
+        RELEASE_NAME="${{ inputs.release-name }}"
+        NAMESPACE="${{ inputs.namespace }}"
+
+        echo "📜 Checking Helm release history for ${RELEASE_NAME}..."
+
+        # Check if release exists
+        if ! helm list -n ${NAMESPACE} | grep -q "^${RELEASE_NAME}"; then
+          echo "❌ Release ${RELEASE_NAME} not found in namespace ${NAMESPACE}"
+          echo "exists=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+        echo "exists=true" >> $GITHUB_OUTPUT
+
+        # Get release history
+        helm history ${RELEASE_NAME} -n ${NAMESPACE} --max 10
+
+        # Get current revision
+        CURRENT_REVISION=$(helm history ${RELEASE_NAME} -n ${NAMESPACE} --max 1 -o json | jq -r '.[0].revision')
+        echo "current-revision=${CURRENT_REVISION}" >> $GITHUB_OUTPUT
+        echo "📌 Current revision: ${CURRENT_REVISION}"
+
+        # Check if there are previous revisions
+        if [ ${CURRENT_REVISION} -le 1 ]; then
+          echo "⚠️  This is the first deployment (revision 1)"
+          echo "has-previous=false" >> $GITHUB_OUTPUT
+        else
+          echo "has-previous=true" >> $GITHUB_OUTPUT
+          PREVIOUS_REVISION=$((CURRENT_REVISION - 1))
+          echo "previous-revision=${PREVIOUS_REVISION}" >> $GITHUB_OUTPUT
+          echo "🔄 Can rollback to revision: ${PREVIOUS_REVISION}"
+        fi
+
+    - name: Perform rollback
+      id: rollback
+      shell: bash
+      run: |
+        RELEASE_NAME="${{ inputs.release-name }}"
+        NAMESPACE="${{ inputs.namespace }}"
+        CURRENT_REVISION="${{ steps.check-history.outputs.current-revision }}"
+        HAS_PREVIOUS="${{ steps.check-history.outputs.has-previous }}"
+
+        echo "current-revision=${CURRENT_REVISION}" >> $GITHUB_OUTPUT
+
+        # If no previous revision exists
+        if [[ "${HAS_PREVIOUS}" == "false" ]]; then
+          echo "⚠️  No previous revision to rollback to"
+
+          if [[ "${{ inputs.uninstall-if-first }}" == "true" ]]; then
+            echo "🗑️  Uninstalling failed release (first deployment)..."
+            if helm uninstall ${RELEASE_NAME} -n ${NAMESPACE}; then
+              echo "✅ Release uninstalled successfully"
+              echo "status=uninstalled" >> $GITHUB_OUTPUT
+              echo "previous-revision=0" >> $GITHUB_OUTPUT
+            else
+              echo "❌ Failed to uninstall release"
+              echo "status=uninstall-failed" >> $GITHUB_OUTPUT
+              echo "previous-revision=0" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+          else
+            echo "⏭️  Skipping uninstall (uninstall-if-first is false)"
+            echo "status=no-previous-revision" >> $GITHUB_OUTPUT
+            echo "previous-revision=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          exit 0
+        fi
+
+        # Determine target revision
+        if [[ -n "${{ inputs.revision }}" ]]; then
+          TARGET_REVISION="${{ inputs.revision }}"
+          echo "🎯 Rolling back to specified revision: ${TARGET_REVISION}"
+        else
+          TARGET_REVISION="${{ steps.check-history.outputs.previous-revision }}"
+          echo "🎯 Rolling back to previous revision: ${TARGET_REVISION}"
+        fi
+
+        echo "previous-revision=${TARGET_REVISION}" >> $GITHUB_OUTPUT
+
+        # Build rollback command
+        ROLLBACK_CMD="helm rollback ${RELEASE_NAME} ${TARGET_REVISION}"
+        ROLLBACK_CMD="${ROLLBACK_CMD} --namespace ${NAMESPACE}"
+        ROLLBACK_CMD="${ROLLBACK_CMD} --timeout ${{ inputs.timeout }}"
+
+        if [[ "${{ inputs.wait }}" == "true" ]]; then
+          ROLLBACK_CMD="${ROLLBACK_CMD} --wait"
+        fi
+
+        if [[ "${{ inputs.cleanup-on-fail }}" == "true" ]]; then
+          ROLLBACK_CMD="${ROLLBACK_CMD} --cleanup-on-fail"
+        fi
+
+        echo "📝 Running: ${ROLLBACK_CMD}"
+        echo "🔄 Initiating rollback..."
+
+        if eval ${ROLLBACK_CMD}; then
+          echo "✅ Rollback completed successfully"
+          echo "status=success" >> $GITHUB_OUTPUT
+
+          # Show new status
+          echo ""
+          echo "📊 Rollback Summary:"
+          echo "  - Rolled back from revision ${CURRENT_REVISION} to ${TARGET_REVISION}"
+          helm history ${RELEASE_NAME} -n ${NAMESPACE} --max 5
+        else
+          echo "❌ Rollback failed"
+          echo "status=failed" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+    - name: Verify rollback
+      if: steps.rollback.outputs.status == 'success'
+      shell: bash
+      run: |
+        RELEASE_NAME="${{ inputs.release-name }}"
+        NAMESPACE="${{ inputs.namespace }}"
+
+        echo "🔍 Verifying rollback..."
+
+        # Wait for pods to be ready
+        echo "⏳ Waiting for pods to be ready after rollback..."
+        if kubectl wait --for=condition=ready pod \
+          -l app.kubernetes.io/instance=${RELEASE_NAME} \
+          -n ${NAMESPACE} \
+          --timeout=300s 2>/dev/null; then
+          echo "✅ Pods are ready after rollback"
+        else
+          echo "⚠️  Warning: Some pods may not be ready yet"
+          echo "📊 Current pod status:"
+          kubectl get pods -n ${NAMESPACE} -l app.kubernetes.io/instance=${RELEASE_NAME}
+        fi
+
+        # Show deployment status
+        echo ""
+        echo "📊 Current deployment status:"
+        kubectl get deployments,pods -n ${NAMESPACE} -l app.kubernetes.io/instance=${RELEASE_NAME}
+
+        echo ""
+        echo "📜 Helm release status:"
+        helm status ${RELEASE_NAME} -n ${NAMESPACE}
+
+    - name: Rollback summary
+      if: always()
+      shell: bash
+      run: |
+        echo "## 🔄 Helm Rollback Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Release:** \`${{ inputs.release-name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Namespace:** \`${{ inputs.namespace }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Cluster:** \`${{ inputs.cluster-name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        STATUS="${{ steps.rollback.outputs.status }}"
+        CURRENT_REV="${{ steps.rollback.outputs.current-revision }}"
+        PREVIOUS_REV="${{ steps.rollback.outputs.previous-revision }}"
+
+        case "${STATUS}" in
+          "success")
+            echo "✅ **Status:** Rollback successful" >> $GITHUB_STEP_SUMMARY
+            echo "**Revisions:** ${CURRENT_REV} → ${PREVIOUS_REV}" >> $GITHUB_STEP_SUMMARY
+            ;;
+          "uninstalled")
+            echo "🗑️ **Status:** Release uninstalled (first deployment)" >> $GITHUB_STEP_SUMMARY
+            ;;
+          "no-previous-revision")
+            echo "⚠️ **Status:** No previous revision available" >> $GITHUB_STEP_SUMMARY
+            ;;
+          "failed")
+            echo "❌ **Status:** Rollback failed" >> $GITHUB_STEP_SUMMARY
+            ;;
+          *)
+            echo "❓ **Status:** Unknown" >> $GITHUB_STEP_SUMMARY
+            ;;
+        esac
