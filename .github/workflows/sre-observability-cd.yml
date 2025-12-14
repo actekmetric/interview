@@ -37,6 +37,11 @@ concurrency:
   group: observability-cd-${{ github.event.inputs.environment || 'auto' }}
   cancel-in-progress: false
 
+# Required for OIDC authentication with AWS
+permissions:
+  id-token: write   # Required for AWS OIDC authentication
+  contents: read    # Required to checkout repository
+
 jobs:
   # Determine which environments to deploy to
   determine-environments:
