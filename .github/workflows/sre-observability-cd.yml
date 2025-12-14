@@ -338,8 +338,11 @@ jobs:
   deploy-qa:
     name: Deploy to QA
     runs-on: ubuntu-latest
-    needs: determine-environments
-    if: contains(fromJson(needs.determine-environments.outputs.environments), 'qa')
+    needs: [determine-environments, publish-chart]
+    if: |
+      always() &&
+      (needs.publish-chart.result == 'success' || needs.publish-chart.result == 'skipped') &&
+      contains(fromJson(needs.determine-environments.outputs.environments), 'qa')
     environment:
       name: qa
       url: https://g-qa-grafana.grafana-workspace.us-east-1.amazonaws.com
@@ -383,62 +386,23 @@ jobs:
             --name tekmetric-qa \
             --region us-east-1
 
-      - name: Prepare Helm Values
+      - name: Install helm-s3 plugin
         run: |
-          cd sre/helm/observability
+          echo "📦 Installing helm-s3 plugin..."
+          helm plugin install https://github.com/hypnoglow/helm-s3.git --version 0.16.0
+          helm plugin list
 
-          cat > values-qa-generated.yaml << EOF
-          global:
-            environment: qa
-            region: us-east-1
+      - name: Add S3 Helm Repository
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+          REPO_NAME="tekmetric-s3"
 
-          prometheusAgent:
-            enabled: true
-            replicas: 1
+          echo "📤 Adding S3 repo..."
+          helm repo add ${REPO_NAME} ${REPO_PATH}
+          helm repo update ${REPO_NAME}
 
-            serviceAccount:
-              create: true
-              name: prometheus-agent
-              annotations:
-                eks.amazonaws.com/role-arn: "${{ steps.terraform-outputs.outputs.role-arn }}"
-
-            amp:
-              remoteWriteUrl: "${{ steps.terraform-outputs.outputs.amp-endpoint }}"
-              sigv4:
-                enabled: true
-                region: us-east-1
-
-            scrapeInterval: 30s
-            scrapeTimeout: 10s
-
-            resources:
-              requests:
-                memory: "512Mi"
-                cpu: "250m"
-              limits:
-                memory: "1Gi"
-                cpu: "500m"
-
-          kubeStateMetrics:
-            enabled: true
-            resources:
-              requests:
-                memory: "128Mi"
-                cpu: "100m"
-              limits:
-                memory: "256Mi"
-                cpu: "200m"
-
-          nodeExporter:
-            enabled: true
-            resources:
-              requests:
-                memory: "64Mi"
-                cpu: "50m"
-              limits:
-                memory: "128Mi"
-                cpu: "100m"
-          EOF
+          echo "✅ Repository added and updated"
 
       - name: Ensure Namespace Exists with Helm Labels
         if: github.event.inputs.action != 'uninstall'
@@ -456,13 +420,22 @@ jobs:
       - name: Deploy/Upgrade Observability Stack
         if: github.event.inputs.action != 'uninstall'
         run: |
-          cd sre/helm/observability
+          REPO_NAME="tekmetric-s3"
+          CHART_NAME="${{ needs.publish-chart.outputs.chart-name }}"
+          CHART_VERSION="${{ needs.publish-chart.outputs.chart-version }}"
 
-          helm upgrade --install observability . \
+          echo "📦 Deploying ${CHART_NAME}:${CHART_VERSION} from S3..."
+
+          helm upgrade --install observability ${REPO_NAME}/${CHART_NAME} \
+            --version ${CHART_VERSION} \
             --namespace observability \
-            --values values-qa-generated.yaml \
+            --values sre/helm/observability/values-qa.yaml \
+            --set prometheusAgent.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${{ steps.terraform-outputs.outputs.role-arn }}" \
+            --set prometheusAgent.amp.remoteWriteUrl="${{ steps.terraform-outputs.outputs.amp-endpoint }}" \
             --wait \
             --timeout 10m
+
+          echo "✅ Helm deployment completed"
 
       - name: Uninstall Observability Stack
         if: github.event.inputs.action == 'uninstall'
@@ -482,8 +455,11 @@ jobs:
   deploy-prod:
     name: Deploy to PROD
     runs-on: ubuntu-latest
-    needs: determine-environments
-    if: contains(fromJson(needs.determine-environments.outputs.environments), 'prod')
+    needs: [determine-environments, publish-chart]
+    if: |
+      always() &&
+      (needs.publish-chart.result == 'success' || needs.publish-chart.result == 'skipped') &&
+      contains(fromJson(needs.determine-environments.outputs.environments), 'prod')
     environment:
       name: prod
       url: https://g-prod-grafana.grafana-workspace.us-east-1.amazonaws.com
@@ -527,62 +503,23 @@ jobs:
             --name tekmetric-prod \
             --region us-east-1
 
-      - name: Prepare Helm Values
+      - name: Install helm-s3 plugin
         run: |
-          cd sre/helm/observability
+          echo "📦 Installing helm-s3 plugin..."
+          helm plugin install https://github.com/hypnoglow/helm-s3.git --version 0.16.0
+          helm plugin list
 
-          cat > values-prod-generated.yaml << EOF
-          global:
-            environment: prod
-            region: us-east-1
+      - name: Add S3 Helm Repository
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+          REPO_NAME="tekmetric-s3"
 
-          prometheusAgent:
-            enabled: true
-            replicas: 2  # HA for production
+          echo "📤 Adding S3 repo..."
+          helm repo add ${REPO_NAME} ${REPO_PATH}
+          helm repo update ${REPO_NAME}
 
-            serviceAccount:
-              create: true
-              name: prometheus-agent
-              annotations:
-                eks.amazonaws.com/role-arn: "${{ steps.terraform-outputs.outputs.role-arn }}"
-
-            amp:
-              remoteWriteUrl: "${{ steps.terraform-outputs.outputs.amp-endpoint }}"
-              sigv4:
-                enabled: true
-                region: us-east-1
-
-            scrapeInterval: 15s  # More frequent for prod
-            scrapeTimeout: 10s
-
-            resources:
-              requests:
-                memory: "1Gi"
-                cpu: "500m"
-              limits:
-                memory: "2Gi"
-                cpu: "1000m"
-
-          kubeStateMetrics:
-            enabled: true
-            resources:
-              requests:
-                memory: "256Mi"
-                cpu: "200m"
-              limits:
-                memory: "512Mi"
-                cpu: "400m"
-
-          nodeExporter:
-            enabled: true
-            resources:
-              requests:
-                memory: "128Mi"
-                cpu: "100m"
-              limits:
-                memory: "256Mi"
-                cpu: "200m"
-          EOF
+          echo "✅ Repository added and updated"
 
       - name: Ensure Namespace Exists with Helm Labels
         if: github.event.inputs.action != 'uninstall'
@@ -600,13 +537,22 @@ jobs:
       - name: Deploy/Upgrade Observability Stack
         if: github.event.inputs.action != 'uninstall'
         run: |
-          cd sre/helm/observability
+          REPO_NAME="tekmetric-s3"
+          CHART_NAME="${{ needs.publish-chart.outputs.chart-name }}"
+          CHART_VERSION="${{ needs.publish-chart.outputs.chart-version }}"
 
-          helm upgrade --install observability . \
+          echo "📦 Deploying ${CHART_NAME}:${CHART_VERSION} from S3..."
+
+          helm upgrade --install observability ${REPO_NAME}/${CHART_NAME} \
+            --version ${CHART_VERSION} \
             --namespace observability \
-            --values values-prod-generated.yaml \
+            --values sre/helm/observability/values-prod.yaml \
+            --set prometheusAgent.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${{ steps.terraform-outputs.outputs.role-arn }}" \
+            --set prometheusAgent.amp.remoteWriteUrl="${{ steps.terraform-outputs.outputs.amp-endpoint }}" \
             --wait \
             --timeout 10m
+
+          echo "✅ Helm deployment completed"
 
       - name: Uninstall Observability Stack
         if: github.event.inputs.action == 'uninstall'
