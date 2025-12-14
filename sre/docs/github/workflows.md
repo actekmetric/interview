@@ -225,7 +225,7 @@ The workflows are organized into two main categories:
   - Multi-platform (amd64, arm64) for deployable branches
 - Output image reference for subsequent stages
 
-**Stage 3: Security Scan** (PRs only)
+**Stage 3: Security Scan**
 - Download build artifacts
 - Build single-platform Docker image (amd64) for scanning
 - Scan image for vulnerabilities with Trivy
@@ -268,7 +268,7 @@ Final version: 1.0.0.42-abc12345-SNAPSHOT
 |-------|-------------|----------------|-------------------------------------------|
 | 1️⃣ Build and Test | ✅ Always | ✅ Always | ✅ Always |
 | 2️⃣ Docker Build | ✅ Single platform | ✅ Multi-platform | ✅ Multi-platform |
-| 3️⃣ Security Scan | ✅ Yes | ❌ No | ❌ No |
+| 3️⃣ Security Scan | ✅ Yes | ✅ Yes | ✅ Yes |
 | 4️⃣ Publish Docker Image | ❌ No | ❌ No | ✅ Yes |
 | 5️⃣ Publish Helm Chart | ❌ No | ❌ No | ✅ Yes |
 | 6️⃣ CI Pipeline Summary | ✅ Always | ✅ Always | ✅ Always |
@@ -292,7 +292,7 @@ Final version: 1.0.0.42-abc12345-SNAPSHOT
 ┌──────────────┐      ┌─────────────────────┐
 │ 3️⃣ Security  │      │ 4️⃣ Publish Docker   │
 │    Scan      │      │    Image (ECR)      │
-│ (PRs only)   │      │ (Deployable only)   │
+│ (Always)     │      │ (Deployable only)   │
 └──────────────┘      └──────────┬──────────┘
                                  │
                                  ▼
