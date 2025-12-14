@@ -1,0 +1,24 @@
+{{- if .Values.kubeStateMetrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-state-metrics
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: observability
+spec:
+  type: {{ .Values.kubeStateMetrics.service.type }}
+  ports:
+    - name: http-metrics
+      port: {{ .Values.kubeStateMetrics.service.port }}
+      targetPort: http-metrics
+      protocol: TCP
+    - name: telemetry
+      port: 8081
+      targetPort: telemetry
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: kube-state-metrics
+{{- end }}

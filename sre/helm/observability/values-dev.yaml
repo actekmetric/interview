@@ -1,0 +1,57 @@
+# Dev Environment Values for Observability Stack
+
+global:
+  environment: dev
+  region: us-east-1
+
+prometheusAgent:
+  enabled: true
+
+  serviceAccount:
+    create: true
+    name: prometheus-agent
+    annotations:
+      # TODO: Replace with actual IAM role ARN from Terraform output
+      # Get from: cd sre/terragrunt/environments/dev/observability/amp && terragrunt output prometheus_agent_role_arn
+      eks.amazonaws.com/role-arn: "arn:aws:iam::596308305263:role/tekmetric-dev-prometheus-agent-role"
+
+  amp:
+    # TODO: Replace with actual AMP remote_write endpoint from Terraform output
+    # Get from: cd sre/terragrunt/environments/dev/observability/amp && terragrunt output workspace_endpoint
+    # Example: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-abc123/api/v1/remote_write
+    remoteWriteUrl: "https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-31072996-666c-4020-957d-794b042fbd3a/api/v1/remote_write"
+    sigv4:
+      enabled: true
+      region: us-east-1
+
+  # More frequent scraping in dev for testing
+  scrapeInterval: 30s
+  scrapeTimeout: 10s
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "250m"
+
+kubeStateMetrics:
+  enabled: true
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
+
+nodeExporter:
+  enabled: true
+  resources:
+    requests:
+      memory: "32Mi"
+      cpu: "25m"
+    limits:
+      memory: "64Mi"
+      cpu: "50m"
