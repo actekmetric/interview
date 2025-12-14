@@ -1,0 +1,205 @@
+name: Destroy ECR Repository
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment (dev, qa, prod)'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+      repository-name:
+        description: 'ECR repository name (e.g., backend, frontend)'
+        required: true
+        type: string
+      confirm:
+        description: 'Type repository name to confirm (e.g., backend)'
+        required: true
+
+concurrency:
+  group: ecr-destroy-${{ inputs.environment }}-${{ inputs.repository-name }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate Destroy Request
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate confirmation
+        run: |
+          if [[ "${{ inputs.confirm }}" != "${{ inputs.repository-name }}" ]]; then
+            echo "❌ ERROR: Confirmation failed."
+            echo "Type '${{ inputs.repository-name }}' to confirm destruction"
+            exit 1
+          fi
+
+      - name: Warning
+        run: |
+          echo "⚠️ WARNING: This will destroy the ECR repository"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Repository: ${{ inputs.repository-name }}"
+          echo ""
+          echo "Sleeping for 5 seconds..."
+          sleep 5
+
+  destroy:
+    name: Destroy ECR ${{ inputs.repository-name }} in ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform and Terragrunt
+        uses: ./.github/actions/terraform-setup
+
+      - name: Assume AWS Role
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: ${{ inputs.environment }}
+          role-arn: ${{ inputs.environment == 'dev' && secrets.AWS_DEV_ROLE_ARN || inputs.environment == 'qa' && secrets.AWS_QA_ROLE_ARN || secrets.AWS_PROD_ROLE_ARN }}
+          account-id: ${{ inputs.environment == 'dev' && secrets.AWS_DEV_ACCOUNT_ID || inputs.environment == 'qa' && secrets.AWS_QA_ACCOUNT_ID || secrets.AWS_PROD_ACCOUNT_ID }}
+          aws-region: us-east-1
+
+      - name: Create dynamic ECR config for destruction
+        run: |
+          echo "📝 Creating ECR configuration for ${{ inputs.repository-name }}..."
+
+          ECR_DIR="sre/terragrunt/environments/${{ inputs.environment }}/ecr-dynamic"
+          mkdir -p "${ECR_DIR}"
+
+          # Get account info
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+          cat > "${ECR_DIR}/terragrunt.hcl" <<'HCLEOF'
+          include "root" {
+            path = find_in_parent_folders()
+          }
+
+          terraform {
+            source = "${get_repo_root()}/sre/terraform/modules/ecr"
+          }
+
+          # Use the same state key as the provision action
+          generate "backend_override" {
+            path      = "backend_override.tf"
+            if_exists = "overwrite"
+            contents  = <<EOF
+          terraform {
+            backend "s3" {
+              key = "${path_relative_to_include()}/ecr-${{ inputs.repository-name }}/terraform.tfstate"
+            }
+          }
+          EOF
+          }
+
+          locals {
+            environment_vars = read_terragrunt_config(find_in_parent_folders("account.hcl"))
+            region_vars      = read_terragrunt_config(find_in_parent_folders("region.hcl"))
+
+            environment = local.environment_vars.locals.environment
+            account_id  = local.environment_vars.locals.account_id
+            region      = local.region_vars.locals.region
+          }
+
+          inputs = {
+            repository_names = [
+              "${{ inputs.repository-name }}",
+            ]
+
+            image_tag_mutability  = "MUTABLE"
+            scan_on_push         = true
+            max_image_count      = 10
+            untagged_expire_days = 7
+
+            github_actions_role_arns = [
+              "arn:aws:iam::${local.account_id}:role/GitHubActionsRole-${local.environment}"
+            ]
+
+            tags = {
+              Environment = local.environment
+              ManagedBy   = "GitHub-Actions"
+              Component   = "ECR"
+              Service     = "${{ inputs.repository-name }}"
+              region      = local.region
+            }
+          }
+          HCLEOF
+
+          echo "✅ Config created at ${ECR_DIR}/terragrunt.hcl"
+          cat "${ECR_DIR}/terragrunt.hcl"
+
+      - name: Show current state
+        continue-on-error: true
+        run: |
+          cd sre/terragrunt/environments/${{ inputs.environment }}/ecr-dynamic
+
+          echo "📋 Current Terraform state:"
+          terragrunt state list || echo "No state found (repository may not exist)"
+
+      - name: Terragrunt plan destroy
+        continue-on-error: true
+        run: |
+          cd sre/terragrunt/environments/${{ inputs.environment }}/ecr-dynamic
+
+          echo "🔍 Planning destroy for ${{ inputs.repository-name }}..."
+          terragrunt plan -destroy
+
+      - name: Terragrunt destroy
+        run: |
+          cd sre/terragrunt/environments/${{ inputs.environment }}/ecr-dynamic
+
+          echo "🗑️ Destroying ECR repository ${{ inputs.repository-name }}..."
+          terragrunt destroy --terragrunt-non-interactive -auto-approve
+
+      - name: Verify destruction
+        run: |
+          echo "🔍 Verifying ECR repository is destroyed..."
+
+          # Check if repository exists
+          if aws ecr describe-repositories \
+            --repository-names ${{ inputs.repository-name }} \
+            --region us-east-1 2>/dev/null; then
+            echo "⚠️ ECR repository still exists: ${{ inputs.repository-name }}"
+            exit 1
+          else
+            echo "✅ ECR repository destroyed: ${{ inputs.repository-name }}"
+          fi
+
+      - name: Cleanup dynamic config
+        if: always()
+        run: |
+          echo "🧹 Cleaning up dynamic config..."
+          rm -rf sre/terragrunt/environments/${{ inputs.environment }}/ecr-dynamic
+          echo "✅ Cleanup complete"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 🗑️ ECR Repository Destruction Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** ${{ inputs.repository-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Destroyed at:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "✅ **Status:** ECR repository destroyed successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Status:** Destruction failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### State Location" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The Terraform state for this repository was at:" >> $GITHUB_STEP_SUMMARY
+          echo "\`dev/ecr-${{ inputs.repository-name }}/terraform.tfstate\`" >> $GITHUB_STEP_SUMMARY

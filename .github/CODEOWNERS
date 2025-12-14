@@ -1,0 +1,32 @@
+# CODEOWNERS file
+# Each line is a file pattern followed by one or more owners (teams or users)
+# These owners will be automatically requested for review when someone opens a PR that modifies files matching the pattern
+
+# Backend team owns all backend code
+/backend/ @actekmetric @tekmetric-org/backend-team
+
+# Frontend team owns all frontend code
+/frontend/ @actekmetric @tekmetric-org/frontend-team
+
+# Mobile team owns all mobile code
+/mobile/ @actekmetric @tekmetric-org/mobile-team
+
+# ML team owns all machine learning code
+/ml/ @actekmetric @tekmetric-org/ml-team
+
+# Data team owns all data-related code
+/data/ @actekmetric @tekmetric-org/data-team
+
+# QA team owns all QA code and tests
+/qa/ @actekmetric @tekmetric-org/qa-team
+
+# SRE team owns all SRE infrastructure and helm charts
+/sre/ @actekmetric @tekmetric-org/sre-team
+
+# GitHub workflows and CI/CD - owned by SRE team
+/.github/ @actekmetric @tekmetric-org/sre-team
+
+# Root level files - require approval from multiple teams
+/README.md @actekmetric @tekmetric-org/backend-team @tekmetric-org/frontend-team @tekmetric-org/sre-team
+/.gitignore @actekmetric @tekmetric-org/sre-team
+

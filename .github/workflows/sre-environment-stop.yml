@@ -1,0 +1,69 @@
+name: Stop Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to stop'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+
+concurrency:
+  group: environment-scale-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  stop-environment:
+    name: Stop ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Assume AWS Role
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: ${{ inputs.environment }}
+          role-arn: ${{ inputs.environment == 'dev' && secrets.AWS_DEV_ROLE_ARN || inputs.environment == 'qa' && secrets.AWS_QA_ROLE_ARN || secrets.AWS_PROD_ROLE_ARN }}
+          account-id: ${{ inputs.environment == 'dev' && secrets.AWS_DEV_ACCOUNT_ID || inputs.environment == 'qa' && secrets.AWS_QA_ACCOUNT_ID || secrets.AWS_PROD_ACCOUNT_ID }}
+      - name: Get EKS credentials
+        run: |
+          aws eks update-kubeconfig \
+            --name tekmetric-${{ inputs.environment }} \
+            --region us-east-1
+
+      - name: Save state and scale down
+        uses: ./.github/actions/workload-scale
+        with:
+          action: save
+          environment: ${{ inputs.environment }}
+          namespace: default
+
+      - name: Verify stopped
+        run: |
+          echo "🔍 Verifying all pods are stopped..."
+          RUNNING_PODS=$(kubectl get pods -n default --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
+          if [ "$RUNNING_PODS" -eq 0 ]; then
+            echo "✅ All pods stopped successfully"
+          else
+            echo "⚠️ Warning: $RUNNING_PODS pods still running"
+            kubectl get pods -n default
+          fi
+
+      - name: Summary
+        run: |
+          echo "## 🛑 Environment Stopped" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster:** tekmetric-${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "ℹ️ Infrastructure (EKS, VPC, NAT) remains running." >> $GITHUB_STEP_SUMMARY
+          echo "Use the Destroy workflow for complete teardown." >> $GITHUB_STEP_SUMMARY

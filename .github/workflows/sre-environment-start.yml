@@ -1,0 +1,77 @@
+name: Start Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to start'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+      services:
+        description: 'Services to start (comma-separated, or "all")'
+        required: false
+        default: 'all'
+
+concurrency:
+  group: environment-scale-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  start-environment:
+    name: Start ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Assume AWS Role
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: ${{ inputs.environment }}
+          role-arn: ${{ inputs.environment == 'dev' && secrets.AWS_DEV_ROLE_ARN || inputs.environment == 'qa' && secrets.AWS_QA_ROLE_ARN || secrets.AWS_PROD_ROLE_ARN }}
+          account-id: ${{ inputs.environment == 'dev' && secrets.AWS_DEV_ACCOUNT_ID || inputs.environment == 'qa' && secrets.AWS_QA_ACCOUNT_ID || secrets.AWS_PROD_ACCOUNT_ID }}
+
+      - name: Get EKS credentials
+        run: |
+          aws eks update-kubeconfig \
+            --name tekmetric-${{ inputs.environment }} \
+            --region us-east-1
+
+      - name: Restore workloads
+        uses: ./.github/actions/workload-scale
+        with:
+          action: restore
+          environment: ${{ inputs.environment }}
+          namespace: default
+
+      - name: Wait for pods
+        run: |
+          echo "⏳ Waiting for pods to be ready..."
+          kubectl wait --for=condition=ready pod \
+            --all --timeout=600s -n default || {
+            echo "⚠️ Some pods not ready. Current status:"
+            kubectl get pods -n default
+          }
+
+      - name: Health check
+        run: |
+          echo "🔍 Performing health check..."
+          kubectl get pods,deployments,services -n default
+
+      - name: Summary
+        run: |
+          echo "## 🚀 Environment Started" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster:** tekmetric-${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pod Status" >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n default >> $GITHUB_STEP_SUMMARY || true

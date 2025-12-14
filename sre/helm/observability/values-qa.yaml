@@ -1,0 +1,53 @@
+# QA Environment Values for Observability Stack
+
+global:
+  environment: qa
+  region: us-east-1
+
+prometheusAgent:
+  enabled: true
+
+  serviceAccount:
+    create: true
+    name: prometheus-agent
+    annotations:
+      # Injected at deploy time via --set from Terraform outputs
+      eks.amazonaws.com/role-arn: ""
+
+  amp:
+    # Injected at deploy time via --set from Terraform outputs
+    remoteWriteUrl: ""
+    sigv4:
+      enabled: true
+      region: us-east-1
+
+  scrapeInterval: 30s
+  scrapeTimeout: 10s
+
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+kubeStateMetrics:
+  enabled: true
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+nodeExporter:
+  enabled: true
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"

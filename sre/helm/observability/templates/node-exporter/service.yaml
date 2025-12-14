@@ -1,0 +1,21 @@
+{{- if .Values.nodeExporter.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: node-exporter
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: observability
+spec:
+  type: {{ .Values.nodeExporter.service.type }}
+  clusterIP: None  # Headless service for DaemonSet
+  ports:
+    - name: metrics
+      port: {{ .Values.nodeExporter.service.port }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: node-exporter
+{{- end }}

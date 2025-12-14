@@ -1,0 +1,164 @@
+name: Common Helm Chart CI/CD
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths:
+      - 'sre/helm/common/charts/tekmetric-common-chart/**'
+      - '.github/workflows/sre-helm-common-chart.yml'
+
+  workflow_dispatch:
+
+# Cancel previous runs for the same branch/PR
+concurrency:
+  group: common-chart-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish-helm-chart:
+    name: Publish Common Helm Chart to S3
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      chart-version: ${{ steps.get-version.outputs.version }}
+      chart-name: ${{ steps.get-version.outputs.name }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.14.0
+
+      - name: Lint Helm Chart
+        run: |
+          echo "🔍 Linting Helm chart..."
+          helm lint sre/helm/common/charts/tekmetric-common-chart/
+          echo "✅ Helm chart linting passed"
+
+      - name: Get Chart Info
+        id: get-version
+        run: |
+          CHART_NAME=$(helm show chart sre/helm/common/charts/tekmetric-common-chart | grep '^name:' | awk '{print $2}')
+          CHART_VERSION=$(helm show chart sre/helm/common/charts/tekmetric-common-chart | grep '^version:' | awk '{print $2}')
+          APP_VERSION=$(helm show chart sre/helm/common/charts/tekmetric-common-chart | grep '^appVersion:' | awk '{print $2}' | tr -d '"')
+
+          echo "name=${CHART_NAME}" >> $GITHUB_OUTPUT
+          echo "version=${CHART_VERSION}" >> $GITHUB_OUTPUT
+          echo "app-version=${APP_VERSION}" >> $GITHUB_OUTPUT
+
+          echo "📦 Chart: ${CHART_NAME}"
+          echo "🏷️  Version: ${CHART_VERSION}"
+          echo "🐳 App Version: ${APP_VERSION}"
+
+      - name: Validate Chart Template
+        run: |
+          echo "🔍 Validating Helm chart templates..."
+          helm template test-release sre/helm/common/charts/tekmetric-common-chart --dry-run > /dev/null
+          echo "✅ Helm chart templates are valid"
+
+      - name: Configure AWS credentials
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
+          aws-region: us-east-1
+
+      - name: Install helm-s3 plugin
+        run: |
+          echo "📦 Installing helm-s3 plugin..."
+          helm plugin install https://github.com/hypnoglow/helm-s3.git --version 0.16.0
+          helm plugin list
+
+      - name: Initialize S3 Helm repository
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+
+          echo "🔧 Initializing S3 Helm repository..."
+          helm s3 init --ignore-if-exists ${REPO_PATH}
+          echo "✅ Repository ready"
+
+      - name: Package and Push Common Chart to S3
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+          REPO_NAME="tekmetric-s3"
+          CHART_NAME="${{ steps.get-version.outputs.name }}"
+          CHART_VERSION="${{ steps.get-version.outputs.version }}"
+
+          echo "📦 Packaging Helm chart..."
+          helm package sre/helm/common/charts/tekmetric-common-chart \
+            --version ${CHART_VERSION} \
+            --app-version ${{ steps.get-version.outputs.app-version }}
+
+          echo "📤 Adding S3 repo..."
+          helm repo add ${REPO_NAME} ${REPO_PATH}
+
+          echo "📤 Pushing chart to S3..."
+          CHART_FILE="${CHART_NAME}-${CHART_VERSION}.tgz"
+          helm s3 push ${CHART_FILE} ${REPO_NAME} --force
+
+          echo "✅ Chart pushed to ${REPO_PATH}"
+
+          # Verify
+          echo "🔍 Verifying chart availability..."
+          helm repo update ${REPO_NAME}
+          helm search repo ${REPO_NAME}/${CHART_NAME} --versions | head -5
+
+      - name: Summary
+        run: |
+          echo "## 📦 Common Helm Chart Published to S3" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Chart Name:** \`${{ steps.get-version.outputs.name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Chart Version:** \`${{ steps.get-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**App Version:** \`${{ steps.get-version.outputs.app-version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** \`s3://tekmetric-helm-charts-dev/charts\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Add as Dependency" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`yaml" >> $GITHUB_STEP_SUMMARY
+          echo "dependencies:" >> $GITHUB_STEP_SUMMARY
+          echo "  - name: ${{ steps.get-version.outputs.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "    version: \"${{ steps.get-version.outputs.version }}\"" >> $GITHUB_STEP_SUMMARY
+          echo "    repository: \"s3://tekmetric-helm-charts-dev/charts\"" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  workflow-summary:
+    name: Workflow Summary
+    runs-on: ubuntu-latest
+    needs: [publish-helm-chart]
+    if: always()
+
+    steps:
+      - name: Generate Workflow Summary
+        run: |
+          echo "## 🚀 Common Helm Chart CI/CD Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** [\`${GITHUB_SHA::8}\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }} (${{ github.actor }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Job Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Publish Helm Chart
+          if [[ "${{ needs.publish-helm-chart.result }}" == "success" ]]; then
+            echo "| Publish Common Chart | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.publish-helm-chart.result }}" == "failure" ]]; then
+            echo "| Publish Common Chart | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Publish Common Chart | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY

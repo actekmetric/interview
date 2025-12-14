@@ -1,0 +1,105 @@
+# Test values for Tekmetric Common Chart
+
+nameOverride: "catalog-service"
+
+replicaCount: 2
+
+image:
+  repository: "docker.example.com"
+  name: "tekmetric/catalog-service"
+  pullPolicy: Always
+  tag: "1.0.0"
+
+imagePullSecrets:
+  - name: docker-registry
+
+service:
+  type: ClusterIP
+  port: 8080
+  managementPort: 9090
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  hosts:
+    - host: catalog.tekmetric.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: catalog-tls
+      hosts:
+        - catalog.tekmetric.local
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPU: 70
+  targetMemory: 80
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+probes:
+  enabled: true
+  liveness:
+    path: /actuator/health/liveness
+    port: management
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  readiness:
+    path: /actuator/health/readiness
+    port: management
+    initialDelaySeconds: 10
+    periodSeconds: 5
+  startup:
+    path: /actuator/health/readiness
+    port: management
+    failureThreshold: 30
+
+affinity:
+  enabled: true
+  type: soft
+  topologyKey: kubernetes.io/hostname
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+  prometheus.io/path: "/actuator/prometheus"
+
+podLabels:
+  app.tekmetric.com/team: platform
+  app.tekmetric.com/component: catalog
+
+env:
+  - name: SPRING_PROFILES_ACTIVE
+    value: "production"
+  - name: LOG_LEVEL
+    value: "info"
+
+jvm:
+  enabled: true
+  options: "-Xms512m -Xmx1024m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+
+observability:
+  enabled: true
+  otel:
+    enabled: true
+    endpoint: "http://otel-collector.monitoring:4318"
+    protocol: "http/protobuf"
+    javaOptions: "-Dotel.instrumentation.micrometer.enabled=true"

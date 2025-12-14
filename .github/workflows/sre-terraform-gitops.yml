@@ -1,0 +1,992 @@
+name: Terraform GitOps
+
+on:
+  pull_request:
+    branches:
+      - master
+      - main
+    paths:
+      - 'sre/terraform/**'
+      - 'sre/terragrunt/**'
+      - '.github/workflows/sre-terraform-gitops.yml'
+      - '.github/actions/terraform-setup/**'
+      - '.github/actions/aws-assume-role/**'
+
+  issue_comment:
+    types: [created]
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+        default: dev
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+        default: plan
+      stage:
+        description: 'Deployment stage (use "all" to run all stages in order)'
+        required: true
+        type: choice
+        options:
+          - all
+          - 1-networking
+          - 2-eks-cluster
+          - 3-iam
+          - 4-ecr
+          - 5-eks-addons
+          - 6-observability/amp
+          - 7-observability/grafana
+        default: all
+
+concurrency:
+  group: terraform-gitops-${{ github.event.pull_request.number || github.event.issue.number || format('manual-{0}-{1}', github.event.inputs.environment, github.run_id) }}
+  cancel-in-progress: false
+
+jobs:
+  # Parse comment and determine action
+  parse-command:
+    name: Parse Command
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request') ||
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       startsWith(github.event.comment.body, '/terraform'))
+    outputs:
+      action: ${{ steps.parse.outputs.action }}
+      environment: ${{ steps.parse.outputs.environment }}
+      stage: ${{ steps.parse.outputs.stage }}
+
+    steps:
+      - name: Parse comment or set defaults
+        id: parse
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Manual workflow trigger
+            echo "action=${{ github.event.inputs.action }}" >> $GITHUB_OUTPUT
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "stage=${{ github.event.inputs.stage }}" >> $GITHUB_OUTPUT
+            echo "Manual trigger - Action: ${{ github.event.inputs.action }}, Environment: ${{ github.event.inputs.environment }}, Stage: ${{ github.event.inputs.stage }}"
+          elif [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+            COMMENT="${{ github.event.comment.body }}"
+            echo "Comment received: $COMMENT"
+
+            # Parse: /terraform <action> <environment> [stage]
+            # Examples:
+            #   /terraform apply dev
+            #   /terraform plan qa
+            #   /terraform apply dev all
+            #   /terraform plan dev 1-networking
+            #   /terraform apply qa 3-iam
+            #   /terraform apply dev 6-observability/amp
+
+            if [[ "$COMMENT" =~ ^/terraform[[:space:]]+(apply|plan)([[:space:]]+)?(dev|qa|prod)?([[:space:]]+)?(all|1-networking|2-eks-cluster|3-iam|4-ecr|5-eks-addons|6-observability/amp|7-observability/grafana)?$ ]]; then
+              ACTION="${BASH_REMATCH[1]}"
+              ENV="${BASH_REMATCH[3]}"
+              STAGE="${BASH_REMATCH[5]}"
+
+              # Default to dev if no environment specified
+              if [[ -z "$ENV" ]]; then
+                ENV="dev"
+              fi
+
+              # Default to all if no stage specified
+              if [[ -z "$STAGE" ]]; then
+                STAGE="all"
+              fi
+
+              echo "action=$ACTION" >> $GITHUB_OUTPUT
+              echo "environment=$ENV" >> $GITHUB_OUTPUT
+              echo "stage=$STAGE" >> $GITHUB_OUTPUT
+              echo "Parsed - Action: $ACTION, Environment: $ENV, Stage: $STAGE"
+            else
+              echo "Invalid command format."
+              echo "Usage: /terraform <apply|plan> [dev|qa|prod] [stage]"
+              echo "Examples:"
+              echo "  /terraform plan dev"
+              echo "  /terraform apply dev all"
+              echo "  /terraform plan dev 1-networking"
+              echo "  /terraform apply qa 3-iam"
+              echo "  /terraform apply dev observability/amp"
+              echo "  /terraform apply dev observability/grafana"
+              exit 1
+            fi
+          else
+            # Pull request - always plan, always dev, all stages
+            echo "action=plan" >> $GITHUB_OUTPUT
+            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "stage=all" >> $GITHUB_OUTPUT
+            echo "Pull request - defaulting to plan dev (all stages)"
+          fi
+
+  # Validate Terraform
+  validate:
+    name: Validate Terraform
+    runs-on: ubuntu-latest
+    needs: parse-command
+
+    steps:
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('sha', pr.data.head.sha);
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr-sha.outputs.sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Terraform and Terragrunt
+        uses: ./.github/actions/terraform-setup
+
+      - name: Terraform format check
+        run: |
+          echo "🔍 Checking Terraform formatting..."
+          terraform fmt -check -recursive sre/terraform/
+          echo "✅ Terraform formatting is correct"
+
+      - name: Validate Terraform modules
+        run: |
+          echo "🔍 Validating Terraform modules..."
+          for module in sre/terraform/modules/*/; do
+            echo "Validating $module"
+            cd $module
+            terraform init -backend=false
+            terraform validate
+            cd -
+          done
+          echo "✅ All modules are valid"
+
+  # Plan for Dev
+  plan-dev:
+    name: Plan Dev
+    runs-on: ubuntu-latest
+    needs: [parse-command, validate]
+    if: needs.parse-command.outputs.environment == 'dev'
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    environment:
+      name: dev-plan
+
+    steps:
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('sha', pr.data.head.sha);
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr-sha.outputs.sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Terraform and Terragrunt
+        uses: ./.github/actions/terraform-setup
+
+      - name: Assume AWS Role
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
+
+      - name: Terragrunt Plan
+        id: plan
+        env:
+          STAGE: ${{ needs.parse-command.outputs.stage }}
+        run: |
+          set -o pipefail
+          cd sre/terragrunt/environments/dev
+
+          # Determine which directories to run based on stage
+          if [[ "$STAGE" == "all" ]]; then
+            echo "Running plan for all stages in dev environment..."
+            terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee /tmp/dev-plan-raw.txt
+          else
+            # Extract module path from stage
+            # For numbered stages like "1-networking", remove the number prefix
+            # For path stages like "observability/amp", use as-is
+            if [[ "$STAGE" =~ ^[0-9]- ]]; then
+              MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            else
+              MODULE="$STAGE"
+            fi
+            echo "Running plan for stage: $MODULE in dev environment..."
+            cd "$MODULE"
+            terragrunt plan --terragrunt-non-interactive 2>&1 | tee /tmp/dev-plan-raw.txt
+            cd - > /dev/null
+          fi
+
+          # Strip ANSI color codes and save for comment
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/dev-plan-raw.txt > /tmp/dev-plan.txt
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-plan-${{ github.run_id }}
+          path: /tmp/dev-plan.txt
+          retention-days: 5
+
+      - name: Comment Plan on PR
+        if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync('/tmp/dev-plan.txt', 'utf8');
+
+            // Truncate if too long (GitHub comment limit is ~65k chars)
+            let planSummary = planOutput;
+            if (planOutput.length > 60000) {
+              planSummary = planOutput.substring(0, 60000) + '\n\n... (truncated)\n\nSee full output in job logs.';
+            }
+
+            const prNumber = context.issue.number || context.payload.pull_request.number;
+
+            const body = `## 🗺️ Terraform Plan: Dev
+
+            <details>
+            <summary>📋 Plan Output (click to expand)</summary>
+
+            \`\`\`terraform
+            ${planSummary}
+            \`\`\`
+
+            </details>
+
+            **Next Steps:**
+            - Review the plan above
+            - Comment \`/terraform apply dev\` to apply these changes
+            - Or see [full logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            **Available commands:**
+            - \`/terraform plan dev\` - Re-run plan for dev
+            - \`/terraform apply dev\` - Apply changes to dev
+            - \`/terraform plan qa\` - Plan for QA
+            - \`/terraform apply qa\` - Apply to QA (requires approval)
+            `;
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: prNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Terraform Plan: Dev')
+            );
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                comment_id: botComment.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                issue_number: prNumber,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            }
+
+  # Apply for Dev
+  apply-dev:
+    name: Apply Dev
+    runs-on: ubuntu-latest
+    needs: [parse-command, plan-dev]
+    if: |
+      needs.parse-command.outputs.action == 'apply' &&
+      needs.parse-command.outputs.environment == 'dev'
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    environment:
+      name: dev
+      url: https://console.aws.amazon.com/eks/home?region=us-east-1#/clusters/tekmetric-dev
+
+    steps:
+      - name: React to comment
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: ${{ github.event.comment.id }},
+              content: 'rocket'
+            });
+
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('sha', pr.data.head.sha);
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr-sha.outputs.sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Terraform and Terragrunt
+        uses: ./.github/actions/terraform-setup
+
+      - name: Assume AWS Role
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
+
+      - name: Terragrunt Apply
+        env:
+          STAGE: ${{ needs.parse-command.outputs.stage }}
+        run: |
+          set -o pipefail
+          cd sre/terragrunt/environments/dev
+
+          # Determine which directories to run based on stage
+          if [[ "$STAGE" == "all" ]]; then
+            echo "🚀 Applying all stages in dev environment..."
+            terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee /tmp/dev-apply.txt
+          else
+            # Extract module path from stage
+            # For numbered stages like "1-networking", remove the number prefix
+            # For path stages like "observability/amp", use as-is
+            if [[ "$STAGE" =~ ^[0-9]- ]]; then
+              MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            else
+              MODULE="$STAGE"
+            fi
+            echo "🚀 Applying stage: $MODULE in dev environment..."
+            cd "$MODULE"
+            terragrunt apply -auto-approve --terragrunt-non-interactive 2>&1 | tee /tmp/dev-apply.txt
+            cd - > /dev/null
+          fi
+
+      - name: Upload apply artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-apply-${{ github.run_id }}
+          path: /tmp/dev-apply.txt
+          retention-days: 30
+
+      - name: Comment Apply Result on PR
+        if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const applyOutput = fs.readFileSync('/tmp/dev-apply.txt', 'utf8');
+
+            let applySummary = applyOutput;
+            if (applyOutput.length > 60000) {
+              applySummary = applyOutput.substring(0, 60000) + '\n\n... (truncated)\n\nSee full output in job logs.';
+            }
+
+            const prNumber = context.issue.number || context.payload.pull_request.number;
+
+            const body = `## ✅ Terraform Apply: Dev
+
+            Successfully applied infrastructure changes to **dev** environment!
+
+            <details>
+            <summary>📋 Apply Output (click to expand)</summary>
+
+            \`\`\`terraform
+            ${applySummary}
+            \`\`\`
+
+            </details>
+
+            **Resources:**
+            - [EKS Console](https://console.aws.amazon.com/eks/home?region=us-east-1#/clusters/tekmetric-dev)
+            - [Full logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+
+            await github.rest.issues.createComment({
+              issue_number: prNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+  # Plan for QA
+  plan-qa:
+    name: Plan QA
+    runs-on: ubuntu-latest
+    needs: [parse-command, validate]
+    if: needs.parse-command.outputs.environment == 'qa'
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    environment:
+      name: qa-plan
+
+    steps:
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('sha', pr.data.head.sha);
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr-sha.outputs.sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Terraform and Terragrunt
+        uses: ./.github/actions/terraform-setup
+
+      - name: Assume AWS Role
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: qa
+          role-arn: ${{ secrets.AWS_QA_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_QA_ACCOUNT_ID }}
+
+      - name: Terragrunt Plan
+        id: plan
+        env:
+          STAGE: ${{ needs.parse-command.outputs.stage }}
+        run: |
+          set -o pipefail
+          cd sre/terragrunt/environments/qa
+
+          # Determine which directories to run based on stage
+          if [[ "$STAGE" == "all" ]]; then
+            echo "Running plan for all stages in qa environment..."
+            terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee /tmp/qa-plan-raw.txt
+          else
+            # Extract module path from stage
+            # For numbered stages like "1-networking", remove the number prefix
+            # For path stages like "observability/amp", use as-is
+            if [[ "$STAGE" =~ ^[0-9]- ]]; then
+              MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            else
+              MODULE="$STAGE"
+            fi
+            echo "Running plan for stage: $MODULE in qa environment..."
+            cd "$MODULE"
+            terragrunt plan --terragrunt-non-interactive 2>&1 | tee /tmp/qa-plan-raw.txt
+            cd - > /dev/null
+          fi
+
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/qa-plan-raw.txt > /tmp/qa-plan.txt
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-plan-${{ github.run_id }}
+          path: /tmp/qa-plan.txt
+          retention-days: 5
+
+      - name: Comment Plan on PR
+        if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync('/tmp/qa-plan.txt', 'utf8');
+
+            let planSummary = planOutput;
+            if (planOutput.length > 60000) {
+              planSummary = planOutput.substring(0, 60000) + '\n\n... (truncated)\n\nSee full output in job logs.';
+            }
+
+            const prNumber = context.issue.number || context.payload.pull_request.number;
+
+            const body = `## 🗺️ Terraform Plan: QA
+
+            <details>
+            <summary>📋 Plan Output (click to expand)</summary>
+
+            \`\`\`terraform
+            ${planSummary}
+            \`\`\`
+
+            </details>
+
+            **Next Steps:**
+            - Review the plan above
+            - Comment \`/terraform apply qa\` to apply these changes
+            - Or see [full logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: prNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Terraform Plan: QA')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                comment_id: botComment.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: prNumber,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            }
+
+  # Apply for QA
+  apply-qa:
+    name: Apply QA
+    runs-on: ubuntu-latest
+    needs: [parse-command, plan-qa]
+    if: |
+      needs.parse-command.outputs.action == 'apply' &&
+      needs.parse-command.outputs.environment == 'qa'
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    environment:
+      name: qa
+      url: https://console.aws.amazon.com/eks/home?region=us-east-1#/clusters/tekmetric-qa
+
+    steps:
+      - name: React to comment
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: ${{ github.event.comment.id }},
+              content: 'rocket'
+            });
+
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('sha', pr.data.head.sha);
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr-sha.outputs.sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Terraform and Terragrunt
+        uses: ./.github/actions/terraform-setup
+
+      - name: Assume AWS Role
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: qa
+          role-arn: ${{ secrets.AWS_QA_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_QA_ACCOUNT_ID }}
+
+      - name: Terragrunt Apply
+        env:
+          STAGE: ${{ needs.parse-command.outputs.stage }}
+        run: |
+          set -o pipefail
+          cd sre/terragrunt/environments/qa
+
+          # Determine which directories to run based on stage
+          if [[ "$STAGE" == "all" ]]; then
+            echo "🚀 Applying all stages in qa environment..."
+            terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee /tmp/qa-apply.txt
+          else
+            # Extract module path from stage
+            # For numbered stages like "1-networking", remove the number prefix
+            # For path stages like "observability/amp", use as-is
+            if [[ "$STAGE" =~ ^[0-9]- ]]; then
+              MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            else
+              MODULE="$STAGE"
+            fi
+            echo "🚀 Applying stage: $MODULE in qa environment..."
+            cd "$MODULE"
+            terragrunt apply -auto-approve --terragrunt-non-interactive 2>&1 | tee /tmp/qa-apply.txt
+            cd - > /dev/null
+          fi
+
+      - name: Upload apply artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-apply-${{ github.run_id }}
+          path: /tmp/qa-apply.txt
+          retention-days: 30
+
+      - name: Comment Apply Result on PR
+        if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const applyOutput = fs.readFileSync('/tmp/qa-apply.txt', 'utf8');
+
+            let applySummary = applyOutput;
+            if (applyOutput.length > 60000) {
+              applySummary = applyOutput.substring(0, 60000) + '\n\n... (truncated)\n\nSee full output in job logs.';
+            }
+
+            const prNumber = context.issue.number || context.payload.pull_request.number;
+
+            const body = `## ✅ Terraform Apply: QA
+
+            Successfully applied infrastructure changes to **qa** environment!
+
+            <details>
+            <summary>📋 Apply Output (click to expand)</summary>
+
+            \`\`\`terraform
+            ${applySummary}
+            \`\`\`
+
+            </details>
+
+            **Resources:**
+            - [EKS Console](https://console.aws.amazon.com/eks/home?region=us-east-1#/clusters/tekmetric-qa)
+            - [Full logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+
+            await github.rest.issues.createComment({
+              issue_number: prNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+  # Plan for Prod
+  plan-prod:
+    name: Plan Prod
+    runs-on: ubuntu-latest
+    needs: [parse-command, validate]
+    if: needs.parse-command.outputs.environment == 'prod'
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    environment:
+      name: prod-plan
+
+    steps:
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('sha', pr.data.head.sha);
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr-sha.outputs.sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Terraform and Terragrunt
+        uses: ./.github/actions/terraform-setup
+
+      - name: Assume AWS Role
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: prod
+          role-arn: ${{ secrets.AWS_PROD_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_PROD_ACCOUNT_ID }}
+
+      - name: Terragrunt Plan
+        id: plan
+        env:
+          STAGE: ${{ needs.parse-command.outputs.stage }}
+        run: |
+          set -o pipefail
+          cd sre/terragrunt/environments/prod
+
+          # Determine which directories to run based on stage
+          if [[ "$STAGE" == "all" ]]; then
+            echo "Running plan for all stages in prod environment..."
+            terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee /tmp/prod-plan-raw.txt
+          else
+            # Extract module path from stage
+            # For numbered stages like "1-networking", remove the number prefix
+            # For path stages like "observability/amp", use as-is
+            if [[ "$STAGE" =~ ^[0-9]- ]]; then
+              MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            else
+              MODULE="$STAGE"
+            fi
+            echo "Running plan for stage: $MODULE in prod environment..."
+            cd "$MODULE"
+            terragrunt plan --terragrunt-non-interactive 2>&1 | tee /tmp/prod-plan-raw.txt
+            cd - > /dev/null
+          fi
+
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/prod-plan-raw.txt > /tmp/prod-plan.txt
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-plan-${{ github.run_id }}
+          path: /tmp/prod-plan.txt
+          retention-days: 5
+
+      - name: Comment Plan on PR
+        if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync('/tmp/prod-plan.txt', 'utf8');
+
+            let planSummary = planOutput;
+            if (planOutput.length > 60000) {
+              planSummary = planOutput.substring(0, 60000) + '\n\n... (truncated)\n\nSee full output in job logs.';
+            }
+
+            const prNumber = context.issue.number || context.payload.pull_request.number;
+
+            const body = `## 🗺️ Terraform Plan: Prod
+
+            <details>
+            <summary>📋 Plan Output (click to expand)</summary>
+
+            \`\`\`terraform
+            ${planSummary}
+            \`\`\`
+
+            </details>
+
+            **Next Steps:**
+            - Review the plan above carefully
+            - Comment \`/terraform apply prod\` to apply these changes
+            - Or see [full logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            ⚠️ **Warning:** This will affect production infrastructure!
+            `;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: prNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Terraform Plan: Prod')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                comment_id: botComment.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: prNumber,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            }
+
+  # Apply for Prod
+  apply-prod:
+    name: Apply Prod
+    runs-on: ubuntu-latest
+    needs: [parse-command, plan-prod]
+    if: |
+      needs.parse-command.outputs.action == 'apply' &&
+      needs.parse-command.outputs.environment == 'prod'
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    environment:
+      name: prod
+      url: https://console.aws.amazon.com/eks/home?region=us-east-1#/clusters/tekmetric-prod
+
+    steps:
+      - name: React to comment
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: ${{ github.event.comment.id }},
+              content: 'rocket'
+            });
+
+      - name: Get PR SHA
+        id: pr-sha
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('sha', pr.data.head.sha);
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr-sha.outputs.sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Terraform and Terragrunt
+        uses: ./.github/actions/terraform-setup
+
+      - name: Assume AWS Role
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: prod
+          role-arn: ${{ secrets.AWS_PROD_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_PROD_ACCOUNT_ID }}
+
+      - name: Terragrunt Apply
+        env:
+          STAGE: ${{ needs.parse-command.outputs.stage }}
+        run: |
+          set -o pipefail
+          cd sre/terragrunt/environments/prod
+
+          # Determine which directories to run based on stage
+          if [[ "$STAGE" == "all" ]]; then
+            echo "🚀 Applying all stages in prod environment..."
+            terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee /tmp/prod-apply.txt
+          else
+            # Extract module path from stage
+            # For numbered stages like "1-networking", remove the number prefix
+            # For path stages like "observability/amp", use as-is
+            if [[ "$STAGE" =~ ^[0-9]- ]]; then
+              MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            else
+              MODULE="$STAGE"
+            fi
+            echo "🚀 Applying stage: $MODULE in prod environment..."
+            cd "$MODULE"
+            terragrunt apply -auto-approve --terragrunt-non-interactive 2>&1 | tee /tmp/prod-apply.txt
+            cd - > /dev/null
+          fi
+
+      - name: Upload apply artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-apply-${{ github.run_id }}
+          path: /tmp/prod-apply.txt
+          retention-days: 30
+
+      - name: Comment Apply Result on PR
+        if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const applyOutput = fs.readFileSync('/tmp/prod-apply.txt', 'utf8');
+
+            let applySummary = applyOutput;
+            if (applyOutput.length > 60000) {
+              applySummary = applyOutput.substring(0, 60000) + '\n\n... (truncated)\n\nSee full output in job logs.';
+            }
+
+            const prNumber = context.issue.number || context.payload.pull_request.number;
+
+            const body = `## ✅ Terraform Apply: Prod
+
+            Successfully applied infrastructure changes to **prod** environment!
+
+            <details>
+            <summary>📋 Apply Output (click to expand)</summary>
+
+            \`\`\`terraform
+            ${applySummary}
+            \`\`\`
+
+            </details>
+
+            **Resources:**
+            - [EKS Console](https://console.aws.amazon.com/eks/home?region=us-east-1#/clusters/tekmetric-prod)
+            - [Full logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+
+            await github.rest.issues.createComment({
+              issue_number: prNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

@@ -1,0 +1,50 @@
+name: 'AWS Assume Role via OIDC'
+description: 'Authenticate to AWS using OIDC and assume environment-specific role'
+
+inputs:
+  environment:
+    description: 'Environment name (dev, qa, prod)'
+    required: true
+  role-arn:
+    description: 'AWS IAM Role ARN to assume'
+    required: true
+  account-id:
+    description: 'AWS Account ID'
+    required: true
+  aws-region:
+    description: 'AWS Region'
+    required: false
+    default: 'us-east-1'
+
+outputs:
+  account-id:
+    description: 'AWS Account ID'
+    value: ${{ steps.assume.outputs.account-id }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Configure AWS credentials
+      id: assume
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.role-arn }}
+        aws-region: ${{ inputs.aws-region }}
+        role-session-name: GHA-${{ inputs.environment }}-${{ github.run_id }}-${{ github.sha }}
+        role-duration-seconds: 3600
+
+    - name: Verify AWS identity
+      shell: bash
+      run: |
+        echo "✅ Successfully assumed role for ${{ inputs.environment }}"
+        echo "🔐 Role: ${{ inputs.role-arn }}"
+        aws sts get-caller-identity
+
+    - name: Summary
+      shell: bash
+      run: |
+        echo "## AWS Authentication" >> $GITHUB_STEP_SUMMARY
+        echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Region:** ${{ inputs.aws-region }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Role ARN:** ${{ inputs.role-arn }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Account ID:** ${{ inputs.account-id }}" >> $GITHUB_STEP_SUMMARY

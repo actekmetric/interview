@@ -1,0 +1,71 @@
+{{- if .Values.prometheusAgent.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-agent
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: prometheus-agent
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: observability
+spec:
+  replicas: {{ .Values.prometheusAgent.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus-agent
+        app.kubernetes.io/component: metrics
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ .Values.prometheusAgent.serviceAccount.name }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        - name: prometheus
+          image: "{{ .Values.prometheusAgent.image.repository }}:{{ .Values.prometheusAgent.image.tag }}"
+          imagePullPolicy: {{ .Values.prometheusAgent.image.pullPolicy }}
+          args:
+            - '--enable-feature=agent'
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.agent.path=/prometheus'
+            - '--web.listen-address=:9090'
+          ports:
+            - name: web
+              containerPort: 9090
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: web
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: web
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.prometheusAgent.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: storage
+              mountPath: /prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-agent-config
+        - name: storage
+          emptyDir: {}
+{{- end }}

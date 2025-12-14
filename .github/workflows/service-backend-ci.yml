@@ -1,0 +1,496 @@
+name: Backend Service CI
+
+on:
+  push:
+    branches:
+      - master
+      - main
+      - develop
+      - 'release/**'
+      - 'feature/**'
+      - 'hotfix/**'
+    paths:
+      - 'backend/**'
+      - 'sre/helm/backend/**'
+      - '.github/workflows/service-backend-ci.yml'
+
+  pull_request:
+    branches:
+      - master
+      - main
+      - develop
+    paths:
+      - 'backend/**'
+      - 'sre/helm/backend/**'
+      - '.github/workflows/service-backend-ci.yml'
+
+  workflow_dispatch:
+    inputs:
+      force-publish:
+        description: 'Force publish Docker image and Helm chart (overrides branch logic)'
+        required: false
+        type: boolean
+        default: false
+      target-environment:
+        description: 'Target environment for version tagging'
+        required: false
+        type: choice
+        options:
+          - auto
+          - dev
+          - qa
+          - prod
+        default: auto
+
+# Cancel previous runs for the same branch/PR
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      environment: ${{ steps.version.outputs.environment }}
+      branch: ${{ steps.version.outputs.branch }}
+      should-deploy: ${{ steps.version.outputs.should-deploy }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build with Maven
+        working-directory: ./backend
+        run: mvn clean package -DskipTests
+
+      - name: Run unit tests
+        working-directory: ./backend
+        run: mvn test
+
+      - name: Determine environment and generate version
+        id: version
+        working-directory: ./backend
+        run: |
+          BASE_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          BUILD_NUM=${{ github.run_number }}
+          SHORT_SHA=${GITHUB_SHA::8}
+          BRANCH_NAME="${GITHUB_REF#refs/heads/}"
+
+          # Remove -SNAPSHOT suffix if present
+          BASE_VERSION_CLEAN=$(echo "${BASE_VERSION}" | sed 's/-SNAPSHOT$//')
+
+          # Check if manual dispatch with overrides
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] && [[ "${{ inputs.target-environment }}" != "auto" ]]; then
+            # Manual dispatch with environment override
+            ENV="${{ inputs.target-environment }}"
+
+            # Generate version suffix based on target environment
+            case "$ENV" in
+              dev)
+                VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-dev"
+                ;;
+              qa)
+                VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-rc"
+                ;;
+              prod)
+                VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}"
+                ;;
+              *)
+                VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}"
+                ;;
+            esac
+
+            # Force publish if requested
+            if [[ "${{ inputs.force-publish }}" == "true" ]]; then
+              SHOULD_DEPLOY="true"
+            else
+              SHOULD_DEPLOY="false"
+            fi
+
+            echo "🔧 Manual dispatch mode"
+            echo "   Target environment: ${ENV}"
+            echo "   Force publish: ${{ inputs.force-publish }}"
+
+          else
+            # Determine environment and version suffix based on branch
+            if [[ "$BRANCH_NAME" == "develop" ]]; then
+              ENV="dev"
+              VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-dev"
+              SHOULD_DEPLOY="true"
+
+            elif [[ "$BRANCH_NAME" =~ ^release/ ]]; then
+              ENV="qa"
+              VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-rc"
+              SHOULD_DEPLOY="true"
+
+            elif [[ "$BRANCH_NAME" == "master" ]] || [[ "$BRANCH_NAME" == "main" ]]; then
+              ENV="prod"
+              VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}"
+              SHOULD_DEPLOY="false"  # Requires manual approval
+
+            elif [[ "$BRANCH_NAME" =~ ^feature/ ]]; then
+              ENV="none"
+              FEATURE_NAME=$(echo "$BRANCH_NAME" | sed 's|feature/||' | sed 's|/|-|g')
+              VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-feature-${FEATURE_NAME}"
+              SHOULD_DEPLOY="false"
+
+            elif [[ "$BRANCH_NAME" =~ ^hotfix/ ]]; then
+              ENV="dev"
+              HOTFIX_NAME=$(echo "$BRANCH_NAME" | sed 's|hotfix/||' | sed 's|/|-|g')
+              VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-hotfix-${HOTFIX_NAME}"
+              SHOULD_DEPLOY="true"
+
+            else
+              ENV="none"
+              VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}"
+              SHOULD_DEPLOY="false"
+            fi
+          fi
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "environment=${ENV}" >> $GITHUB_OUTPUT
+          echo "should-deploy=${SHOULD_DEPLOY}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+
+          echo "📦 Version: ${VERSION}"
+          echo "🎯 Environment: ${ENV}"
+          echo "🚀 Should Deploy: ${SHOULD_DEPLOY}"
+          echo "🌿 Branch: ${BRANCH_NAME}"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-artifacts
+          path: backend/target/*.jar
+          retention-days: 1
+
+  create-build-metadata:
+    name: Create Build Metadata
+    runs-on: ubuntu-latest
+    needs: [build-and-test, docker-build]
+    if: |
+      needs.build-and-test.result == 'success' &&
+      needs.build-and-test.outputs.should-deploy == 'true'
+    steps:
+      - name: Create build metadata for CD
+        run: |
+          mkdir -p build-metadata
+          echo "${{ needs.build-and-test.outputs.version }}" > build-metadata/version.txt
+          echo "${{ needs.docker-build.outputs.image-ref }}" > build-metadata/image-ref.txt
+          echo "${{ needs.build-and-test.outputs.environment }}" > build-metadata/environment.txt
+          echo "${{ needs.build-and-test.outputs.branch }}" > build-metadata/branch.txt
+          echo "${{ needs.build-and-test.outputs.should-deploy }}" > build-metadata/should-deploy.txt
+
+          echo "📝 Build metadata created:"
+          cat build-metadata/version.txt
+          cat build-metadata/image-ref.txt
+          echo "Environment: $(cat build-metadata/environment.txt)"
+          echo "Branch: $(cat build-metadata/branch.txt)"
+          echo "Should Deploy: $(cat build-metadata/should-deploy.txt)"
+
+      - name: Upload build metadata artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-metadata
+          path: build-metadata/
+          retention-days: 1
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    outputs:
+      image-ref: ${{ steps.docker.outputs.image-ref }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-artifacts
+          path: backend/target/
+
+      - name: Build Docker Image
+        id: docker
+        uses: ./.github/actions/docker-build
+        with:
+          context: ./backend
+          dockerfile: docker/Dockerfile
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          image-name: backend
+          image-tag: ${{ needs.build-and-test.outputs.version }}
+          load: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [build-and-test, docker-build]
+    permissions:
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-artifacts
+          path: backend/target/
+
+      - name: Build Docker Image for Scanning
+        uses: ./.github/actions/docker-build
+        with:
+          context: ./backend
+          dockerfile: docker/Dockerfile
+          platforms: linux/amd64
+          image-name: backend
+          image-tag: ${{ needs.build-and-test.outputs.version }}
+          load: true
+
+      - name: Scan Docker Image for Vulnerabilities
+        uses: ./.github/actions/trivy-scan
+        with:
+          image-ref: ${{ needs.docker-build.outputs.image-ref }}
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+          ignore-unfixed: false
+          upload-sarif: true
+
+  publish-docker-image:
+    name: Publish Docker Image
+    runs-on: ubuntu-latest
+    needs: [build-and-test, docker-build]
+    if: |
+      needs.build-and-test.outputs.should-deploy == 'true' &&
+      github.event_name != 'pull_request'
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image-uri: ${{ steps.ecr.outputs.image-uri }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-artifacts
+          path: backend/target/
+
+      - name: Build Docker Image
+        uses: ./.github/actions/docker-build
+        with:
+          context: ./backend
+          dockerfile: docker/Dockerfile
+          platforms: linux/amd64
+          image-name: backend
+          image-tag: ${{ needs.build-and-test.outputs.version }}
+          load: true
+
+      - name: Configure AWS credentials
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
+          aws-region: us-east-1
+
+      - name: Publish to ECR
+        id: ecr
+        uses: ./.github/actions/ecr-publish
+        with:
+          ecr-registry: ${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+          image-name: backend
+          source-tag: ${{ needs.build-and-test.outputs.version }}
+          target-tag: ${{ needs.build-and-test.outputs.version }}
+
+  publish-helm-chart:
+    name: Publish Helm Chart
+    runs-on: ubuntu-latest
+    needs: [build-and-test, publish-docker-image]
+    if: |
+      needs.build-and-test.outputs.should-deploy == 'true' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
+          aws-region: us-east-1
+
+      - name: Install Helm
+        run: |
+          echo "📦 Installing Helm..."
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          helm version
+
+      - name: Install helm-s3 plugin
+        run: |
+          echo "📦 Installing helm-s3 plugin..."
+          helm plugin install https://github.com/hypnoglow/helm-s3.git --version 0.16.0
+          helm plugin list
+
+      - name: Initialize S3 Helm repository
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+
+          echo "🔧 Initializing S3 Helm repository..."
+
+          # Initialize creates index.yaml if it doesn't exist (ignore if already exists)
+          helm s3 init --ignore-if-exists ${REPO_PATH}
+          echo "✅ Repository ready"
+
+      - name: Download Helm chart dependencies
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+          REPO_NAME="tekmetric-s3"
+
+          echo "📥 Adding S3 repo for dependencies..."
+          helm repo add ${REPO_NAME} ${REPO_PATH}
+          helm repo update ${REPO_NAME}
+
+          echo "📥 Downloading chart dependencies..."
+          cd sre/helm/backend
+          helm dependency update
+          ls -la charts/
+
+      - name: Package and Push Helm chart to S3
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+          REPO_NAME="tekmetric-s3"
+          APP_VERSION="${{ needs.build-and-test.outputs.version }}"
+
+          # Get chart version from Chart.yaml (semantic versioning)
+          CHART_VERSION=$(grep '^version:' sre/helm/backend/Chart.yaml | awk '{print $2}')
+
+          echo "📦 Packaging Helm chart..."
+          echo "   Chart version: ${CHART_VERSION}"
+          echo "   App version: ${APP_VERSION}"
+
+          helm package sre/helm/backend \
+            --app-version ${APP_VERSION}
+
+          echo "📤 Pushing chart to S3..."
+          CHART_FILE="backend-service-${CHART_VERSION}.tgz"
+          helm s3 push ${CHART_FILE} ${REPO_NAME} --force
+
+          echo "✅ Chart pushed to ${REPO_PATH}"
+
+          # Verify
+          echo "🔍 Verifying chart availability..."
+          helm repo update ${REPO_NAME}
+          helm search repo ${REPO_NAME}/backend-service --versions | head -5
+
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [build-and-test, docker-build, security-scan, publish-docker-image, publish-helm-chart]
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## 🚀 Backend CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** [\`${GITHUB_SHA::8}\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }} (${{ github.actor }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Pipeline Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Build and Test
+          if [[ "${{ needs.build-and-test.result }}" == "success" ]]; then
+            echo "| 1️⃣ Build and Test | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.build-and-test.result }}" == "failure" ]]; then
+            echo "| 1️⃣ Build and Test | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 1️⃣ Build and Test | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Docker Build
+          if [[ "${{ needs.docker-build.result }}" == "success" ]]; then
+            echo "| 2️⃣ Docker Build | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.docker-build.result }}" == "failure" ]]; then
+            echo "| 2️⃣ Docker Build | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 2️⃣ Docker Build | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Security Scan
+          if [[ "${{ needs.security-scan.result }}" == "success" ]]; then
+            echo "| 3️⃣ Security Scan | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.security-scan.result }}" == "failure" ]]; then
+            echo "| 3️⃣ Security Scan | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 3️⃣ Security Scan | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Publish Docker Image
+          if [[ "${{ needs.publish-docker-image.result }}" == "success" ]]; then
+            echo "| 4️⃣ Publish Docker Image | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.publish-docker-image.result }}" == "failure" ]]; then
+            echo "| 4️⃣ Publish Docker Image | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 4️⃣ Publish Docker Image | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Publish Helm Chart
+          if [[ "${{ needs.publish-helm-chart.result }}" == "success" ]]; then
+            echo "| 5️⃣ Publish Helm Chart | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.publish-helm-chart.result }}" == "failure" ]]; then
+            echo "| 5️⃣ Publish Helm Chart | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 5️⃣ Publish Helm Chart | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Show version if build succeeded
+          if [[ "${{ needs.build-and-test.result }}" == "success" ]]; then
+            echo "### 📦 Artifacts" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Version:** \`${{ needs.build-and-test.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Image:** \`${{ needs.docker-build.outputs.image-ref }}\`" >> $GITHUB_STEP_SUMMARY
+
+            # Show ECR info only if docker image was published to ECR
+            ECR_URI="${{ needs.publish-docker-image.outputs.image-uri }}"
+            if [[ "${{ needs.publish-docker-image.result }}" == "success" ]] && [[ -n "${ECR_URI}" ]]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**ECR URI:** \`${ECR_URI}\`" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**Pull Command:**" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+              echo "docker pull ${ECR_URI}" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi

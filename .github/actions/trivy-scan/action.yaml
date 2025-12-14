@@ -1,0 +1,157 @@
+name: 'Trivy Security Scan'
+description: 'Scans Docker images for vulnerabilities with configurable thresholds and reporting'
+
+inputs:
+  image-ref:
+    description: 'Docker image reference to scan (e.g., ghcr.io/owner/repo:tag)'
+    required: true
+  severity:
+    description: 'Comma-separated list of severities to scan for (CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN)'
+    required: false
+    default: 'CRITICAL,HIGH'
+  exit-code:
+    description: 'Exit code when vulnerabilities are found (0=continue, 1=fail)'
+    required: false
+    default: '0'
+  format:
+    description: 'Output format (table, json, sarif, template)'
+    required: false
+    default: 'table'
+  output-file:
+    description: 'File to write scan results to'
+    required: false
+    default: 'trivy-results.txt'
+  upload-sarif:
+    description: 'Upload SARIF results to GitHub Security tab (true/false)'
+    required: false
+    default: 'true'
+  scan-type:
+    description: 'Scan type (image, fs, config, repo)'
+    required: false
+    default: 'image'
+  ignore-unfixed:
+    description: 'Ignore vulnerabilities with no available fix (true/false)'
+    required: false
+    default: 'false'
+  timeout:
+    description: 'Scan timeout (e.g., 5m, 10m)'
+    required: false
+    default: '10m'
+  registry-username:
+    description: 'Registry username for private images'
+    required: false
+    default: ''
+  registry-password:
+    description: 'Registry password for private images'
+    required: false
+    default: ''
+
+outputs:
+  vulnerabilities-found:
+    description: 'Whether vulnerabilities were found (true/false)'
+    value: ${{ steps.scan.outputs.vulnerabilities-found }}
+  scan-result-file:
+    description: 'Path to the scan result file'
+    value: ${{ steps.scan.outputs.result-file }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run Trivy vulnerability scanner
+      id: scan
+      uses: aquasecurity/trivy-action@0.24.0
+      env:
+        TRIVY_USERNAME: ${{ inputs.registry-username }}
+        TRIVY_PASSWORD: ${{ inputs.registry-password }}
+      with:
+        scan-type: ${{ inputs.scan-type }}
+        image-ref: ${{ inputs.image-ref }}
+        format: ${{ inputs.format }}
+        output: ${{ inputs.output-file }}
+        severity: ${{ inputs.severity }}
+        exit-code: ${{ inputs.exit-code }}
+        ignore-unfixed: ${{ inputs.ignore-unfixed }}
+        timeout: ${{ inputs.timeout }}
+
+    - name: Generate SARIF report
+      id: sarif
+      if: inputs.upload-sarif == 'true'
+      uses: aquasecurity/trivy-action@0.24.0
+      env:
+        TRIVY_USERNAME: ${{ inputs.registry-username }}
+        TRIVY_PASSWORD: ${{ inputs.registry-password }}
+      with:
+        scan-type: ${{ inputs.scan-type }}
+        image-ref: ${{ inputs.image-ref }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        severity: ${{ inputs.severity }}
+        ignore-unfixed: ${{ inputs.ignore-unfixed }}
+
+    - name: Upload SARIF to GitHub Security tab
+      if: inputs.upload-sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Parse scan results
+      id: parse
+      shell: bash
+      run: |
+        if [[ -f "${{ inputs.output-file }}" ]]; then
+          # Check if vulnerabilities were found (simple heuristic)
+          if grep -qi "Total:" "${{ inputs.output-file }}"; then
+            echo "vulnerabilities-found=true" >> $GITHUB_OUTPUT
+          else
+            echo "vulnerabilities-found=false" >> $GITHUB_OUTPUT
+          fi
+          echo "result-file=${{ inputs.output-file }}" >> $GITHUB_OUTPUT
+        else
+          echo "vulnerabilities-found=unknown" >> $GITHUB_OUTPUT
+          echo "result-file=" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Display scan results
+      shell: bash
+      run: |
+        echo "## 🔒 Security Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Image:** \`${{ inputs.image-ref }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Severity Filter:** \`${{ inputs.severity }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Ignore Unfixed:** ${{ inputs.ignore-unfixed }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        if [[ -f "${{ inputs.output-file }}" ]]; then
+          echo "### 📋 Scan Output" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          head -n 100 "${{ inputs.output-file }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+          # Count vulnerabilities by severity if available
+          if grep -q "CRITICAL" "${{ inputs.output-file }}"; then
+            CRITICAL_COUNT=$(grep -c "CRITICAL" "${{ inputs.output-file }}" || echo "0")
+            HIGH_COUNT=$(grep -c "HIGH" "${{ inputs.output-file }}" || echo "0")
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Summary:**" >> $GITHUB_STEP_SUMMARY
+            echo "- 🔴 Critical: ${CRITICAL_COUNT}" >> $GITHUB_STEP_SUMMARY
+            echo "- 🟠 High: ${HIGH_COUNT}" >> $GITHUB_STEP_SUMMARY
+          fi
+        else
+          echo "⚠️ No scan results file found" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [[ "${{ inputs.upload-sarif }}" == "true" ]]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📊 Detailed results available in the [Security tab](https://github.com/${{ github.repository }}/security/code-scanning)" >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: Upload scan results as artifact
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: trivy-scan-results
+        path: |
+          ${{ inputs.output-file }}
+          trivy-results.sarif
+        retention-days: 30

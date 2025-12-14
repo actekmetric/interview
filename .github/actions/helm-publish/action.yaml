@@ -1,0 +1,163 @@
+name: 'Helm Chart Publish to GitHub Pages'
+description: 'Lints, packages, and publishes Helm chart to GitHub Pages using chart-releaser'
+
+inputs:
+  chart-path:
+    description: 'Path to the Helm chart directory (e.g., sre/helm/backend)'
+    required: true
+  chart-version:
+    description: 'Helm chart version to set (if provided, overrides Chart.yaml version)'
+    required: false
+    default: ''
+  app-version:
+    description: 'Application version to set in Chart.yaml appVersion (e.g., docker image tag)'
+    required: false
+    default: ''
+  charts-repo-url:
+    description: 'GitHub Pages URL for the charts repository'
+    required: false
+    default: 'https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}'
+  skip-existing:
+    description: 'Skip release if version already exists'
+    required: false
+    default: 'true'
+  helm-version:
+    description: 'Helm version to use'
+    required: false
+    default: 'v3.14.0'
+  token:
+    description: 'GitHub token for chart-releaser'
+    required: true
+
+outputs:
+  chart-version:
+    description: 'Version of the published chart'
+    value: ${{ steps.get-version.outputs.version }}
+  chart-name:
+    description: 'Name of the published chart'
+    value: ${{ steps.get-version.outputs.name }}
+  app-version:
+    description: 'Application version (appVersion) in the chart'
+    value: ${{ steps.get-version.outputs.app-version }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Configure Git
+      shell: bash
+      run: |
+        git config user.name "$GITHUB_ACTOR"
+        git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+    - name: Install Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: ${{ inputs.helm-version }}
+
+    - name: Update Chart Version and AppVersion
+      shell: bash
+      run: |
+        CHART_FILE="${{ inputs.chart-path }}/Chart.yaml"
+        VALUES_FILE="${{ inputs.chart-path }}/values.yaml"
+
+        if [ -n "${{ inputs.chart-version }}" ]; then
+          echo "📝 Updating chart version to ${{ inputs.chart-version }}"
+          sed -i.bak "s/^version:.*/version: ${{ inputs.chart-version }}/" "${CHART_FILE}"
+        fi
+
+        if [ -n "${{ inputs.app-version }}" ]; then
+          echo "📝 Updating appVersion to ${{ inputs.app-version }}"
+          sed -i.bak "s/^appVersion:.*/appVersion: \"${{ inputs.app-version }}\"/" "${CHART_FILE}"
+
+          # Update the image tag in values.yaml to match appVersion
+          echo "📝 Updating image tag in values.yaml to ${{ inputs.app-version }}"
+          sed -i.bak "s/tag: .*/tag: \"${{ inputs.app-version }}\"  # Defaults to Chart.AppVersion/" "${VALUES_FILE}"
+        fi
+
+        rm -f "${CHART_FILE}.bak" "${VALUES_FILE}.bak"
+
+        echo "📋 Updated Chart.yaml:"
+        cat "${CHART_FILE}"
+        echo ""
+        echo "📋 Image configuration in values.yaml:"
+        grep -A4 "# Backend container image" "${VALUES_FILE}"
+
+    - name: Add Helm Repositories for Dependencies
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.chart-path }}/Chart.yaml" ]; then
+          if grep -q "^dependencies:" "${{ inputs.chart-path }}/Chart.yaml"; then
+            echo "📦 Adding helm repositories for dependencies..."
+            # Add the charts repository so chart-releaser can validate it
+            helm repo add charts-repo ${{ inputs.charts-repo-url }} || true
+            helm repo update
+          fi
+        fi
+
+    - name: Build Chart Dependencies
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.chart-path }}/Chart.yaml" ]; then
+          if grep -q "^dependencies:" "${{ inputs.chart-path }}/Chart.yaml"; then
+            echo "📦 Building chart dependencies for ${{ inputs.chart-path }}..."
+            helm dependency build ${{ inputs.chart-path }}
+            echo "✅ Chart dependencies built successfully"
+          else
+            echo "ℹ️  No dependencies found in Chart.yaml"
+          fi
+        fi
+
+    - name: Lint Helm Chart
+      shell: bash
+      run: |
+        echo "🔍 Linting Helm chart at ${{ inputs.chart-path }}..."
+        helm lint ${{ inputs.chart-path }}
+        echo "✅ Helm chart linting passed"
+
+    - name: Get Chart Info
+      id: get-version
+      shell: bash
+      run: |
+        CHART_NAME=$(helm show chart ${{ inputs.chart-path }} | grep '^name:' | awk '{print $2}')
+        CHART_VERSION=$(helm show chart ${{ inputs.chart-path }} | grep '^version:' | awk '{print $2}')
+        APP_VERSION=$(helm show chart ${{ inputs.chart-path }} | grep '^appVersion:' | awk '{print $2}' | tr -d '"')
+
+        echo "name=${CHART_NAME}" >> $GITHUB_OUTPUT
+        echo "version=${CHART_VERSION}" >> $GITHUB_OUTPUT
+        echo "app-version=${APP_VERSION}" >> $GITHUB_OUTPUT
+
+        echo "📦 Chart: ${CHART_NAME}"
+        echo "🏷️  Version: ${CHART_VERSION}"
+        echo "🐳 App Version: ${APP_VERSION}"
+
+    - name: Validate Chart Template
+      shell: bash
+      run: |
+        echo "🔍 Validating Helm chart templates..."
+        helm template test-release ${{ inputs.chart-path }} --dry-run > /dev/null
+        echo "✅ Helm chart templates are valid"
+
+    - name: Run chart-releaser
+      uses: helm/chart-releaser-action@v1.6.0
+      with:
+        charts_dir: $(dirname ${{ inputs.chart-path }})
+      env:
+        CR_TOKEN: ${{ inputs.token }}
+        CR_SKIP_EXISTING: ${{ inputs.skip-existing }}
+
+    - name: Summary
+      shell: bash
+      run: |
+        echo "## 📦 Helm Chart Published" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Chart Name:** \`${{ steps.get-version.outputs.name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Chart Version:** \`${{ steps.get-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**App Version:** \`${{ steps.get-version.outputs.app-version }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Repository:** ${{ inputs.charts-repo-url }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📥 Install Command" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "helm repo add my-charts ${{ inputs.charts-repo-url }}" >> $GITHUB_STEP_SUMMARY
+        echo "helm repo update" >> $GITHUB_STEP_SUMMARY
+        echo "helm install my-release my-charts/${{ steps.get-version.outputs.name }}" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

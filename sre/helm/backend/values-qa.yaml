@@ -1,0 +1,142 @@
+# QA Environment Overrides for Backend Service
+
+tekmetric-common-chart:
+  # Replica count - 2 replicas for QA
+  replicaCount: 2
+
+  # Container image configuration
+  image:
+    repository: 234567890123.dkr.ecr.us-east-1.amazonaws.com  # QA account ECR (TODO: Replace with actual QA account ID)
+    name: backend
+    tag: ""  # Will be overridden by CD workflow
+    pullPolicy: IfNotPresent
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+    managementPort: null
+    annotations: {}
+
+  # Ingress configuration
+  ingress:
+    enabled: true
+    className: nginx
+    annotations: {}
+    hosts:
+      - host: backend-qa.tekmetric.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  # Health probes - Spring Boot Actuator endpoints
+  probes:
+    enabled: true
+    liveness:
+      path: /actuator/health/liveness
+      port: 8080
+      initialDelaySeconds: 60
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    readiness:
+      path: /actuator/health/readiness
+      port: 8080
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    startup:
+      path: /actuator/health/readiness
+      port: 8080
+      initialDelaySeconds: 0
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 30
+      successThreshold: 1
+
+  # Resource limits and requests
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+  # Horizontal Pod Autoscaler
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPU: 70
+    targetMemory: 80
+
+  # Pod Disruption Budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  # Observability configuration
+  observability:
+    enabled: true
+    otel:
+      enabled: false  # Enable when OTEL collector is deployed
+      endpoint: "http://otel-collector.observability.svc.cluster.local:4318"
+      protocol: "http/protobuf"
+
+  # Environment variables
+  env:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "qa"
+    - name: SERVER_PORT
+      value: "8080"
+    - name: MANAGEMENT_SERVER_PORT
+      value: "8080"
+
+  # JVM configuration
+  jvm:
+    enabled: true
+    options: "-Xms256m -Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+
+  # Pod security context
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+
+  # Container security context
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+
+  # Pod annotations - Prometheus metrics scraping
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/actuator/prometheus"
+
+  # Node selector
+  nodeSelector: {}
+
+  # Tolerations
+  tolerations: []
+
+  # Affinity rules
+  affinity:
+    enabled: true
+    type: soft
+    topologyKey: kubernetes.io/hostname
+
+  # ServiceAccount for IRSA (IAM Roles for Service Accounts)
+  serviceAccount:
+    create: true
+    name: "backend-sa"
+    annotations: {}
+      # eks.amazonaws.com/role-arn: "arn:aws:iam::234567890123:role/backend-service-irsa-qa"

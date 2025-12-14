@@ -1,0 +1,127 @@
+name: Destroy Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to destroy (NON-PROD ONLY)'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+      confirm:
+        description: 'Type "destroy" to confirm'
+        required: true
+
+concurrency:
+  group: environment-destroy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate Destroy Request
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate environment
+        run: |
+          if [[ "${{ inputs.environment }}" == "prod" ]]; then
+            echo "❌ ERROR: Cannot destroy production environment via workflow"
+            exit 1
+          fi
+
+      - name: Validate confirmation
+        run: |
+          if [[ "${{ inputs.confirm }}" != "destroy" ]]; then
+            echo "❌ ERROR: Confirmation failed. Type 'destroy' to confirm."
+            exit 1
+          fi
+
+      - name: Warning
+        run: |
+          echo "⚠️ WARNING: This will completely destroy the ${{ inputs.environment }} environment"
+          echo "All resources (EKS, VPC, NAT, etc.) will be deleted"
+          echo "Sleeping for 10 seconds..."
+          sleep 10
+
+  destroy:
+    name: Destroy ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform and Terragrunt
+        uses: ./.github/actions/terraform-setup
+
+      - name: Assume AWS Role
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: ${{ inputs.environment }}
+          role-arn: ${{ inputs.environment == 'dev' && secrets.AWS_DEV_ROLE_ARN || inputs.environment == 'qa' && secrets.AWS_QA_ROLE_ARN || secrets.AWS_PROD_ROLE_ARN }}
+          account-id: ${{ inputs.environment == 'dev' && secrets.AWS_DEV_ACCOUNT_ID || inputs.environment == 'qa' && secrets.AWS_QA_ACCOUNT_ID || secrets.AWS_PROD_ACCOUNT_ID }}
+      - name: Backup Terraform state
+        continue-on-error: true
+        run: |
+          echo "💾 Backing up Terraform state..."
+          BUCKET_NAME="tekmetric-terraform-state-$(aws sts get-caller-identity --query Account --output text)"
+          BACKUP_PATH="backups/$(date +%Y%m%d-%H%M%S)"
+
+          # Check if bucket exists
+          if aws s3 ls "s3://${BUCKET_NAME}" 2>/dev/null; then
+            # Copy all state files to backup path within same bucket
+            aws s3 sync \
+              "s3://${BUCKET_NAME}" \
+              "s3://${BUCKET_NAME}/${BACKUP_PATH}/" \
+              --exclude "backups/*" \
+              --region us-east-1
+            echo "✅ State backed up to s3://${BUCKET_NAME}/${BACKUP_PATH}/"
+          else
+            echo "⚠️ State bucket does not exist, skipping backup"
+          fi
+
+      - name: Destroy infrastructure
+        run: |
+          cd sre/terragrunt/environments/${{ inputs.environment }}
+          echo "🗑️ Destroying all infrastructure..."
+          terragrunt run-all destroy --terragrunt-non-interactive
+
+      - name: Verify destruction
+        run: |
+          echo "🔍 Verifying resources are destroyed..."
+          # Check EKS cluster
+          if aws eks describe-cluster --name tekmetric-${{ inputs.environment }} 2>/dev/null; then
+            echo "⚠️ EKS cluster still exists"
+          else
+            echo "✅ EKS cluster destroyed"
+          fi
+
+          # Check VPC
+          VPC_ID=$(aws ec2 describe-vpcs \
+            --filters "Name=tag:Name,Values=tekmetric-${{ inputs.environment }}-vpc" \
+            --query "Vpcs[0].VpcId" --output text 2>/dev/null || echo "None")
+          if [ "$VPC_ID" != "None" ]; then
+            echo "⚠️ VPC still exists: $VPC_ID"
+          else
+            echo "✅ VPC destroyed"
+          fi
+
+      - name: Summary
+        run: |
+          echo "## 🗑️ Environment Destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Destroyed at:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Resources Destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "- EKS Cluster" >> $GITHUB_STEP_SUMMARY
+          echo "- VPC and Networking" >> $GITHUB_STEP_SUMMARY
+          echo "- IAM Roles" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **Note:** Terraform state bucket remains for recovery" >> $GITHUB_STEP_SUMMARY

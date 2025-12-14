@@ -1,0 +1,64 @@
+name: 'ECR Publish'
+description: 'Tags and pushes Docker image to Amazon ECR'
+
+inputs:
+  ecr-registry:
+    description: 'ECR registry URL (e.g., {account-id}.dkr.ecr.us-east-1.amazonaws.com)'
+    required: true
+  image-name:
+    description: 'Image name (e.g., backend)'
+    required: true
+  source-tag:
+    description: 'Source image tag (local)'
+    required: true
+  target-tag:
+    description: 'Target image tag (ECR)'
+    required: true
+
+outputs:
+  image-uri:
+    description: 'Full ECR image URI'
+    value: ${{ steps.publish.outputs.image-uri }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Login to Amazon ECR
+      uses: aws-actions/amazon-ecr-login@v2
+      with:
+        mask-password: 'true'
+
+    - name: Tag and Push to ECR
+      id: publish
+      shell: bash
+      run: |
+        SOURCE_IMAGE="${{ inputs.image-name }}:${{ inputs.source-tag }}"
+        TARGET_IMAGE="${{ inputs.ecr-registry }}/${{ inputs.image-name }}:${{ inputs.target-tag }}"
+
+        echo "📦 Tagging image..."
+        echo "  Source: ${SOURCE_IMAGE}"
+        echo "  Target: ${TARGET_IMAGE}"
+
+        docker tag "${SOURCE_IMAGE}" "${TARGET_IMAGE}"
+
+        echo "🚀 Pushing to ECR..."
+        docker push "${TARGET_IMAGE}"
+
+        echo "image-uri=${TARGET_IMAGE}" >> $GITHUB_OUTPUT
+
+        echo "✅ Image published to ECR"
+        echo "   URI: ${TARGET_IMAGE}"
+
+    - name: Display publish summary
+      shell: bash
+      run: |
+        echo "## 📤 ECR Publish" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Image URI:** \`${{ steps.publish.outputs.image-uri }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Registry:** \`${{ inputs.ecr-registry }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Status:** ✅ Published" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📥 Pull Command" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "docker pull ${{ steps.publish.outputs.image-uri }}" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

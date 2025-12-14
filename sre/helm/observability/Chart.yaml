@@ -1,0 +1,14 @@
+apiVersion: v2
+name: observability
+description: Kubernetes observability stack for metrics collection and export to AWS Managed Prometheus
+type: application
+version: 1.0.0
+appVersion: "1.0"
+keywords:
+  - observability
+  - prometheus
+  - metrics
+  - monitoring
+  - aws
+maintainers:
+  - name: SRE Team

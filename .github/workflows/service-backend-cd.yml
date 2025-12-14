@@ -1,0 +1,375 @@
+name: Backend Service CD
+
+on:
+  workflow_run:
+    workflows: ["Backend Service CI"]
+    types: [completed]
+    branches:
+      - main
+      - master
+      - develop
+      - 'release/**'
+      - 'hotfix/**'
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+      version:
+        description: 'Image version tag (e.g., 1.0.123-abc12345-SNAPSHOT)'
+        required: true
+        type: string
+      skip-tests:
+        description: 'Skip post-deployment tests'
+        required: false
+        type: boolean
+        default: false
+
+# Cancel previous runs for the same branch
+concurrency:
+  group: backend-cd-${{ github.ref }}
+  cancel-in-progress: false  # Don't cancel deployments
+
+jobs:
+  determine-environment:
+    name: Determine Deployment Target
+    runs-on: ubuntu-latest
+    if: |
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event != 'pull_request') ||
+      github.event_name == 'workflow_dispatch'
+    outputs:
+      environment: ${{ steps.determine.outputs.environment }}
+      version: ${{ steps.determine.outputs.version }}
+      should-deploy: ${{ steps.determine.outputs.should-deploy }}
+      image-ref: ${{ steps.determine.outputs.image-ref }}
+
+    steps:
+      - name: Download build metadata from CI
+        id: download-metadata
+        if: github.event_name == 'workflow_run'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const allArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: ${{ github.event.workflow_run.id }},
+            });
+
+            const matchArtifact = allArtifacts.data.artifacts.filter((artifact) => {
+              return artifact.name == "build-metadata"
+            })[0];
+
+            if (!matchArtifact) {
+              core.notice('build-metadata artifact not found - CI likely skipped publishing (e.g., master branch)');
+              core.setOutput('metadata-found', 'false');
+              return;
+            }
+
+            core.setOutput('metadata-found', 'true');
+
+            const download = await github.rest.actions.downloadArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: matchArtifact.id,
+              archive_format: 'zip',
+            });
+
+            const fs = require('fs');
+            fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/build-metadata.zip`, Buffer.from(download.data));
+
+      - name: Extract build metadata
+        if: github.event_name == 'workflow_run' && steps.download-metadata.outputs.metadata-found == 'true'
+        run: |
+          unzip build-metadata.zip -d build-metadata
+          ls -la build-metadata/
+
+      - name: Determine deployment target
+        id: determine
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Manual dispatch - use inputs
+            ENV="${{ inputs.environment }}"
+            VERSION="${{ inputs.version }}"
+            SHOULD_DEPLOY="true"
+            BRANCH_NAME="manual"
+            IMAGE_REF="${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/backend:${VERSION}"
+          elif [[ "${{ steps.download-metadata.outputs.metadata-found }}" == "true" ]]; then
+            # Automatic from CI - metadata found
+            WORKFLOW_ID="${{ github.event.workflow_run.id }}"
+            echo "CI Workflow Run ID: ${WORKFLOW_ID}"
+
+            # Read all metadata from artifact
+            VERSION=$(cat build-metadata/version.txt)
+            IMAGE_REF=$(cat build-metadata/image-ref.txt)
+            ENV=$(cat build-metadata/environment.txt)
+            BRANCH_NAME=$(cat build-metadata/branch.txt)
+            SHOULD_DEPLOY=$(cat build-metadata/should-deploy.txt)
+
+            echo "📦 Version from CI: ${VERSION}"
+            echo "🖼️  Image from CI: ${IMAGE_REF}"
+            echo "🎯 Environment from CI: ${ENV}"
+            echo "🌿 Branch from CI: ${BRANCH_NAME}"
+            echo "🚀 Should Deploy from CI: ${SHOULD_DEPLOY}"
+
+            # Additional check for prod - always require manual approval
+            if [[ "$ENV" == "prod" ]]; then
+              SHOULD_DEPLOY="false"
+              echo "⚠️  Production deployment requires manual approval"
+              echo "   Run workflow_dispatch with environment=prod and version=${VERSION}"
+            fi
+          else
+            # Automatic from CI - no metadata found (CI skipped publishing)
+            ENV="none"
+            VERSION="unknown"
+            SHOULD_DEPLOY="false"
+            BRANCH_NAME="${{ github.event.workflow_run.head_branch }}"
+            IMAGE_REF="none"
+
+            echo "⏭️  CI workflow skipped publishing artifacts (e.g., master branch)"
+            echo "   Branch: ${BRANCH_NAME}"
+            echo "   Deployment will be skipped"
+          fi
+
+          echo "environment=${ENV}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "should-deploy=${SHOULD_DEPLOY}" >> $GITHUB_OUTPUT
+          echo "image-ref=${IMAGE_REF}" >> $GITHUB_OUTPUT
+
+          echo "## 🎯 Deployment Target" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${ENV}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Auto-deploy:** \`${SHOULD_DEPLOY}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${IMAGE_REF}\`" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${SHOULD_DEPLOY}" == "false" ]] && [[ "${ENV}" == "none" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "ℹ️  **Note:** CI workflow did not publish artifacts. Deployment skipped." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  deploy-to-dev:
+    name: Deploy to DEV
+    runs-on: ubuntu-latest
+    needs: determine-environment
+    if: needs.determine-environment.outputs.environment == 'dev' && needs.determine-environment.outputs.should-deploy == 'true'
+    environment:
+      name: dev
+      url: http://backend-dev.tekmetric.local
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
+          aws-region: us-east-1
+
+      - name: Deploy to EKS with Helm
+        id: helm-deploy
+        uses: ./.github/actions/helm-deploy
+        with:
+          cluster-name: tekmetric-dev
+          aws-region: us-east-1
+          release-name: backend
+          chart-name: backend-service
+          chart-repo-type: s3
+          chart-repo-url: s3://tekmetric-helm-charts-dev/charts
+          chart-repo-name: tekmetric-s3
+          namespace: backend-services
+          values-file: sre/helm/backend/values-dev.yaml
+          image-repository: ${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+          image-name: backend
+          image-tag: ${{ needs.determine-environment.outputs.version }}
+          image-pull-policy: Always
+          timeout: 10m
+          atomic: true
+          wait: true
+
+      - name: Run Smoke Tests
+        id: smoke-tests
+        if: ${{ !inputs.skip-tests }}
+        run: |
+          echo "🧪 Running post-deployment smoke tests..."
+
+          # Wait for all pods to be ready
+          echo "⏳ Waiting for pods to be ready..."
+          kubectl wait --for=condition=ready pod \
+            -l app.kubernetes.io/name=backend \
+            -n backend-services \
+            --timeout=300s || {
+              echo "❌ Pods failed to become ready within 5 minutes"
+              kubectl get pods -n backend-services -l app.kubernetes.io/name=backend
+              kubectl describe pods -n backend-services -l app.kubernetes.io/name=backend
+              exit 1
+            }
+
+          echo "✅ Pods are ready"
+
+          # Get service endpoint
+          echo "🔍 Getting service endpoint..."
+          SERVICE_NAME=$(kubectl get svc -n backend-services -l app.kubernetes.io/name=backend -o jsonpath='{.items[0].metadata.name}')
+          echo "Service name: ${SERVICE_NAME}"
+
+          # Test health endpoint via port-forward
+          echo "🏥 Testing health endpoints..."
+          kubectl port-forward -n backend-services svc/${SERVICE_NAME} 8080:8080 &
+          PF_PID=$!
+
+          # Wait for port-forward to be ready
+          sleep 5
+
+          # Test health endpoint
+          echo "Testing /actuator/health..."
+          if curl -f -s --max-time 10 http://localhost:8080/actuator/health; then
+            echo "✅ Health endpoint: OK"
+          else
+            echo "❌ Health endpoint: FAILED"
+            kill $PF_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Test liveness endpoint
+          echo "Testing /actuator/health/liveness..."
+          if curl -f -s --max-time 10 http://localhost:8080/actuator/health/liveness; then
+            echo "✅ Liveness endpoint: OK"
+          else
+            echo "❌ Liveness endpoint: FAILED"
+            kill $PF_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Test readiness endpoint
+          echo "Testing /actuator/health/readiness..."
+          if curl -f -s --max-time 10 http://localhost:8080/actuator/health/readiness; then
+            echo "✅ Readiness endpoint: OK"
+          else
+            echo "❌ Readiness endpoint: FAILED"
+            kill $PF_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Test application endpoint
+          echo "Testing /api/welcome..."
+          RESPONSE=$(curl -s --max-time 10 http://localhost:8080/api/welcome)
+          if [[ "$RESPONSE" == *"Welcome"* ]]; then
+            echo "✅ Application endpoint: OK"
+            echo "Response: $RESPONSE"
+          else
+            echo "❌ Application endpoint: FAILED"
+            echo "Response: $RESPONSE"
+            kill $PF_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Test metrics endpoint
+          echo "Testing /actuator/prometheus..."
+          if curl -f -s --max-time 10 http://localhost:8080/actuator/prometheus | grep -q "jvm_memory_used_bytes"; then
+            echo "✅ Metrics endpoint: OK (Prometheus metrics available)"
+          else
+            echo "❌ Metrics endpoint: FAILED"
+            kill $PF_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Clean up port-forward
+          kill $PF_PID 2>/dev/null || true
+
+          echo ""
+          echo "🎉 All smoke tests passed!"
+          echo "✅ Deployment verified and healthy"
+
+      - name: Rollback on Smoke Test Failure
+        if: failure() && steps.smoke-tests.outcome == 'failure'
+        uses: ./.github/actions/helm-rollback
+        with:
+          cluster-name: tekmetric-dev
+          aws-region: us-east-1
+          release-name: backend
+          namespace: backend-services
+          timeout: 5m
+          wait: true
+          cleanup-on-fail: true
+          uninstall-if-first: true
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "## 🚀 DEV Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** DEV" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.determine-environment.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ steps.ecr-push.outputs.ecr-image-uri }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Namespace:** \`default\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Deployment Status" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "✅ **Status:** Deployed successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Status:** Deployment failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Quick Commands" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# View pods" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl get pods -n default -l app.kubernetes.io/name=backend" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# View logs" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl logs -n default -l app.kubernetes.io/name=backend --tail=100" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Rollback" >> $GITHUB_STEP_SUMMARY
+          echo "helm rollback backend -n default" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  cd-summary:
+    name: CD Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [determine-environment, deploy-to-dev]
+    if: always()
+
+    steps:
+      - name: Generate CD Pipeline Summary
+        run: |
+          echo "## 🚀 Backend CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "**CI Workflow:** [\`${{ github.event.workflow_run.name }}\`](${{ github.event.workflow_run.html_url }})" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Job Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Determine Environment
+          if [[ "${{ needs.determine-environment.result }}" == "success" ]]; then
+            echo "| Determine Environment | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Determine Environment | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Deploy to DEV
+          if [[ "${{ needs.deploy-to-dev.result }}" == "success" ]]; then
+            echo "| Deploy to DEV | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.deploy-to-dev.result }}" == "failure" ]]; then
+            echo "| Deploy to DEV | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.deploy-to-dev.result }}" == "skipped" ]]; then
+            echo "| Deploy to DEV | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi

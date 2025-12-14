@@ -1,0 +1,61 @@
+# Production Environment Values for Observability Stack
+
+global:
+  environment: prod
+  region: us-east-1
+
+prometheusAgent:
+  enabled: true
+
+  # Higher replica count for HA in production
+  replicas: 2
+
+  serviceAccount:
+    create: true
+    name: prometheus-agent
+    annotations:
+      # Injected at deploy time via --set from Terraform outputs
+      eks.amazonaws.com/role-arn: ""
+
+  amp:
+    # Injected at deploy time via --set from Terraform outputs
+    remoteWriteUrl: ""
+    sigv4:
+      enabled: true
+      region: us-east-1
+
+  # Production scraping intervals
+  scrapeInterval: 15s  # More frequent for prod
+  scrapeTimeout: 10s
+
+  # Higher resources for production
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+
+kubeStateMetrics:
+  enabled: true
+
+  # Higher resources for production
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "400m"
+
+nodeExporter:
+  enabled: true
+
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
