@@ -25,6 +25,22 @@ on:
       - '.github/workflows/service-backend-ci.yml'
 
   workflow_dispatch:
+    inputs:
+      force-publish:
+        description: 'Force publish Docker image and Helm chart (overrides branch logic)'
+        required: false
+        type: boolean
+        default: false
+      target-environment:
+        description: 'Target environment for version tagging'
+        required: false
+        type: choice
+        options:
+          - auto
+          - dev
+          - qa
+          - prod
+        default: auto
 
 # Cancel previous runs for the same branch/PR
 concurrency:
@@ -72,38 +88,72 @@ jobs:
           # Remove -SNAPSHOT suffix if present
           BASE_VERSION_CLEAN=$(echo "${BASE_VERSION}" | sed 's/-SNAPSHOT$//')
 
-          # Determine environment and version suffix based on branch
-          if [[ "$BRANCH_NAME" == "develop" ]]; then
-            ENV="dev"
-            VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-dev"
-            SHOULD_DEPLOY="true"
+          # Check if manual dispatch with overrides
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] && [[ "${{ inputs.target-environment }}" != "auto" ]]; then
+            # Manual dispatch with environment override
+            ENV="${{ inputs.target-environment }}"
 
-          elif [[ "$BRANCH_NAME" =~ ^release/ ]]; then
-            ENV="qa"
-            VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-rc"
-            SHOULD_DEPLOY="true"
+            # Generate version suffix based on target environment
+            case "$ENV" in
+              dev)
+                VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-dev"
+                ;;
+              qa)
+                VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-rc"
+                ;;
+              prod)
+                VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}"
+                ;;
+              *)
+                VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}"
+                ;;
+            esac
 
-          elif [[ "$BRANCH_NAME" == "master" ]] || [[ "$BRANCH_NAME" == "main" ]]; then
-            ENV="prod"
-            VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}"
-            SHOULD_DEPLOY="false"  # Requires manual approval
+            # Force publish if requested
+            if [[ "${{ inputs.force-publish }}" == "true" ]]; then
+              SHOULD_DEPLOY="true"
+            else
+              SHOULD_DEPLOY="false"
+            fi
 
-          elif [[ "$BRANCH_NAME" =~ ^feature/ ]]; then
-            ENV="none"
-            FEATURE_NAME=$(echo "$BRANCH_NAME" | sed 's|feature/||' | sed 's|/|-|g')
-            VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-feature-${FEATURE_NAME}"
-            SHOULD_DEPLOY="false"
-
-          elif [[ "$BRANCH_NAME" =~ ^hotfix/ ]]; then
-            ENV="dev"
-            HOTFIX_NAME=$(echo "$BRANCH_NAME" | sed 's|hotfix/||' | sed 's|/|-|g')
-            VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-hotfix-${HOTFIX_NAME}"
-            SHOULD_DEPLOY="true"
+            echo "🔧 Manual dispatch mode"
+            echo "   Target environment: ${ENV}"
+            echo "   Force publish: ${{ inputs.force-publish }}"
 
           else
-            ENV="none"
-            VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}"
-            SHOULD_DEPLOY="false"
+            # Determine environment and version suffix based on branch
+            if [[ "$BRANCH_NAME" == "develop" ]]; then
+              ENV="dev"
+              VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-dev"
+              SHOULD_DEPLOY="true"
+
+            elif [[ "$BRANCH_NAME" =~ ^release/ ]]; then
+              ENV="qa"
+              VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-rc"
+              SHOULD_DEPLOY="true"
+
+            elif [[ "$BRANCH_NAME" == "master" ]] || [[ "$BRANCH_NAME" == "main" ]]; then
+              ENV="prod"
+              VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}"
+              SHOULD_DEPLOY="false"  # Requires manual approval
+
+            elif [[ "$BRANCH_NAME" =~ ^feature/ ]]; then
+              ENV="none"
+              FEATURE_NAME=$(echo "$BRANCH_NAME" | sed 's|feature/||' | sed 's|/|-|g')
+              VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-feature-${FEATURE_NAME}"
+              SHOULD_DEPLOY="false"
+
+            elif [[ "$BRANCH_NAME" =~ ^hotfix/ ]]; then
+              ENV="dev"
+              HOTFIX_NAME=$(echo "$BRANCH_NAME" | sed 's|hotfix/||' | sed 's|/|-|g')
+              VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}-hotfix-${HOTFIX_NAME}"
+              SHOULD_DEPLOY="true"
+
+            else
+              ENV="none"
+              VERSION="${BASE_VERSION_CLEAN}.${BUILD_NUM}-${SHORT_SHA}"
+              SHOULD_DEPLOY="false"
+            fi
           fi
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
