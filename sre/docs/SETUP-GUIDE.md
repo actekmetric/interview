@@ -45,7 +45,39 @@ Root Account (Management)
 3. Click **Create organization**
 4. Choose **Enable all features**
 
-### Step 1.2: Create Sub-Accounts
+### Step 1.2: Enable AWS SSO (IAM Identity Center)
+
+**⚠️ Required for AWS Managed Grafana (Observability Stack)**
+
+AWS SSO (now called IAM Identity Center) must be enabled in the **management account** for the observability stack to work. This is a one-time setup that enables single sign-on across all member accounts.
+
+1. In the management account, navigate to **IAM Identity Center** (or search for "AWS SSO")
+2. Click **Enable**
+3. Choose your identity source:
+   - **IAM Identity Center directory** (Recommended for getting started - creates users in AWS)
+   - **Active Directory** (If you have an existing AD)
+   - **External IdP** (If you have Okta, Azure AD, etc.)
+4. Click **Next** and complete the setup
+
+**Create at least one SSO user for testing:**
+1. In IAM Identity Center, go to **Users**
+2. Click **Add user**
+3. Fill in:
+   - **Username**: Your name (e.g., `john.smith`)
+   - **Email**: Your email address
+   - **First name** and **Last name**
+4. Click **Next** → **Add user**
+5. The user will receive an email to set up their password
+
+**Why this is needed:**
+- AWS Managed Grafana requires AWS SSO for authentication
+- This is enabled once in the management account
+- Automatically available across all member accounts (dev, qa, prod)
+- Users can access Grafana workspaces in any environment with a single login
+
+**Can be skipped if:** You're not deploying the observability stack (AMP/Grafana) yet. You can come back and enable this later before deploying Grafana.
+
+### Step 1.3: Create Sub-Accounts
 
 For each environment (dev, qa, prod):
 
@@ -61,7 +93,7 @@ For each environment (dev, qa, prod):
 
 Repeat for all three environments.
 
-### Step 1.3: Access Sub-Accounts
+### Step 1.4: Access Sub-Accounts
 
 **Option A: Switch Role from Root Account (Recommended)**
 
@@ -480,13 +512,43 @@ Go to GitHub: **Actions → Terraform GitOps → Run workflow**
 
 **Wait for Stage 3 to Complete (~2 minutes)**
 
-**Stage 4: EKS Addons**
+**Stage 4: ECR**
 - Environment: `dev`
 - Action: `plan`
-- Stage: `4-eks-addons`
+- Stage: `4-ecr`
 - Review and apply
 
-**Wait for Stage 4 to Complete (~5 minutes)**
+**Wait for Stage 4 to Complete (~2 minutes)**
+
+**Stage 5: EKS Addons**
+- Environment: `dev`
+- Action: `plan`
+- Stage: `5-eks-addons`
+- Review and apply
+
+**Wait for Stage 5 to Complete (~5 minutes)**
+
+**Stage 6: Observability - AMP (Optional)**
+- Environment: `dev`
+- Action: `plan`
+- Stage: `6-observability/amp`
+- Review and apply
+
+**Prerequisites:**
+- ✅ AWS SSO must be enabled (Step 1.2)
+- ✅ At least one SSO user created
+
+**Wait for Stage 6 to Complete (~3 minutes)**
+
+**Stage 7: Observability - Grafana (Optional)**
+- Environment: `dev`
+- Action: `plan`
+- Stage: `7-observability/grafana`
+- Review and apply
+
+**Note:** Grafana requires AWS SSO. If SSO is not enabled, skip this stage for now. You can deploy it later after enabling SSO in the management account.
+
+**Wait for Stage 7 to Complete (~3 minutes)**
 
 ### Step 4.2: Verify Deployment
 
@@ -738,6 +800,8 @@ terraform output state_bucket_name
 ## Quick Reference: Setup Checklist
 
 - [ ] Create AWS Organization and sub-accounts (dev, qa, prod)
+- [ ] Enable AWS SSO/IAM Identity Center in management account
+- [ ] Create at least one SSO user
 - [ ] Note down account IDs
 - [ ] Configure AWS CLI profiles for each account
 - [ ] Bootstrap dev account (terraform apply)
