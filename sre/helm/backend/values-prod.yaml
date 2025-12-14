@@ -1,0 +1,150 @@
+# Production Environment Overrides for Backend Service
+
+tekmetric-common-chart:
+  # Replica count - 3 replicas minimum for production HA
+  replicaCount: 3
+
+  # Container image configuration
+  image:
+    repository: 345678901234.dkr.ecr.us-east-1.amazonaws.com  # Prod account ECR (TODO: Replace with actual prod account ID)
+    name: backend
+    tag: ""  # Will be overridden by CD workflow
+    pullPolicy: IfNotPresent
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+    managementPort: null
+    annotations: {}
+
+  # Ingress configuration
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/rate-limit: "100"  # Rate limiting for production
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    hosts:
+      - host: backend.tekmetric.com  # Production domain
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: backend-tls
+        hosts:
+          - backend.tekmetric.com
+
+  # Health probes - Spring Boot Actuator endpoints
+  probes:
+    enabled: true
+    liveness:
+      path: /actuator/health/liveness
+      port: 8080
+      initialDelaySeconds: 90  # Longer for production
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    readiness:
+      path: /actuator/health/readiness
+      port: 8080
+      initialDelaySeconds: 60  # Longer for production
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    startup:
+      path: /actuator/health/readiness
+      port: 8080
+      initialDelaySeconds: 0
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 60  # More time for production startup
+      successThreshold: 1
+
+  # Resource limits and requests - Higher for production
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+  # Horizontal Pod Autoscaler
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPU: 70
+    targetMemory: 80
+
+  # Pod Disruption Budget - Stricter for production
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2  # At least 2 pods must be available during disruptions
+
+  # Observability configuration
+  observability:
+    enabled: true
+    otel:
+      enabled: false  # Enable when OTEL collector is deployed
+      endpoint: "http://otel-collector.observability.svc.cluster.local:4318"
+      protocol: "http/protobuf"
+
+  # Environment variables
+  env:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "production"
+    - name: SERVER_PORT
+      value: "8080"
+    - name: MANAGEMENT_SERVER_PORT
+      value: "8080"
+    - name: JAVA_OPTS
+      value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+
+  # JVM configuration - Higher memory for production
+  jvm:
+    enabled: true
+    options: "-Xms512m -Xmx1536m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp"
+
+  # Pod security context
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+
+  # Container security context
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+
+  # Pod annotations - Prometheus metrics scraping
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/actuator/prometheus"
+
+  # Node selector - Run on dedicated production nodes if available
+  nodeSelector: {}
+    # node.kubernetes.io/instance-type: "t3.large"  # Uncomment if using specific node types
+
+  # Tolerations
+  tolerations: []
+
+  # Affinity rules - Prefer spreading across availability zones
+  affinity:
+    enabled: true
+    type: hard  # Hard anti-affinity for production
+    topologyKey: topology.kubernetes.io/zone  # Spread across AZs
+
+  # ServiceAccount for IRSA (IAM Roles for Service Accounts)
+  serviceAccount:
+    create: true
+    name: "backend-sa"
+    annotations: {}
+      # eks.amazonaws.com/role-arn: "arn:aws:iam::345678901234:role/backend-service-irsa-prod"

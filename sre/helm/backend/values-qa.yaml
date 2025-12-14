@@ -1,38 +1,36 @@
-# Backend Service Values
-# This chart uses tekmetric-common-chart as a dependency
+# QA Environment Overrides for Backend Service
 
-# Override values for the common chart
 tekmetric-common-chart:
-  nameOverride: "backend"
-  fullnameOverride: ""
-
-  # Backend service replica count
+  # Replica count - 2 replicas for QA
   replicaCount: 2
 
-  # Backend container image
+  # Container image configuration
   image:
-    repository: ghcr.io/actekmetric
+    repository: 234567890123.dkr.ecr.us-east-1.amazonaws.com  # QA account ECR (TODO: Replace with actual QA account ID)
     name: backend
-    tag: ""  # Defaults to Chart.AppVersion
+    tag: ""  # Will be overridden by CD workflow
     pullPolicy: IfNotPresent
 
-  # Service configuration for backend API
+  # Service configuration
   service:
     type: ClusterIP
     port: 8080
     managementPort: null
     annotations: {}
-    additionalPorts: []
 
-  # Ingress configuration (disabled by default)
+  # Ingress configuration
   ingress:
-    enabled: false
+    enabled: true
     className: nginx
     annotations: {}
-    hosts: []
+    hosts:
+      - host: backend-qa.tekmetric.local
+        paths:
+          - path: /
+            pathType: Prefix
     tls: []
 
-  # Health probes for Spring Boot application
+  # Health probes - Spring Boot Actuator endpoints
   probes:
     enabled: true
     liveness:
@@ -42,6 +40,7 @@ tekmetric-common-chart:
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 3
+      successThreshold: 1
     readiness:
       path: /actuator/health/readiness
       port: 8080
@@ -49,6 +48,7 @@ tekmetric-common-chart:
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 3
+      successThreshold: 1
     startup:
       path: /actuator/health/readiness
       port: 8080
@@ -56,6 +56,7 @@ tekmetric-common-chart:
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 30
+      successThreshold: 1
 
   # Resource limits and requests
   resources:
@@ -68,13 +69,13 @@ tekmetric-common-chart:
 
   # Horizontal Pod Autoscaler
   autoscaling:
-    enabled: false
+    enabled: true
     minReplicas: 2
-    maxReplicas: 10
+    maxReplicas: 5
     targetCPU: 70
     targetMemory: 80
 
-  # Pod Disruption Budget for high availability
+  # Pod Disruption Budget
   podDisruptionBudget:
     enabled: true
     minAvailable: 1
@@ -83,14 +84,14 @@ tekmetric-common-chart:
   observability:
     enabled: true
     otel:
-      enabled: false
+      enabled: false  # Enable when OTEL collector is deployed
       endpoint: "http://otel-collector.observability.svc.cluster.local:4318"
       protocol: "http/protobuf"
 
-  # Environment variables for the application
+  # Environment variables
   env:
     - name: SPRING_PROFILES_ACTIVE
-      value: "production"
+      value: "qa"
     - name: SERVER_PORT
       value: "8080"
     - name: MANAGEMENT_SERVER_PORT
@@ -127,8 +128,15 @@ tekmetric-common-chart:
   # Tolerations
   tolerations: []
 
-  # Affinity rules for pod scheduling
+  # Affinity rules
   affinity:
     enabled: true
     type: soft
     topologyKey: kubernetes.io/hostname
+
+  # ServiceAccount for IRSA (IAM Roles for Service Accounts)
+  serviceAccount:
+    create: true
+    name: "backend-sa"
+    annotations: {}
+      # eks.amazonaws.com/role-arn: "arn:aws:iam::234567890123:role/backend-service-irsa-qa"
