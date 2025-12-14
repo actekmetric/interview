@@ -124,7 +124,7 @@ helm install my-service tekmetric/tekmetric-common-chart -f values.yaml
 |-----------|-------------|---------|
 | `observability.enabled` | Enable observability | `true` |
 | `observability.otel.enabled` | Enable OpenTelemetry | `true` |
-| `observability.otel.endpoint` | OTLP collector endpoint | `http://otel-collector:4318` |
+| `observability.otel.endpoint` | OTLP collector endpoint | `http://otel-collector.observability:4318` |
 | `observability.otel.protocol` | OTLP protocol | `http/protobuf` |
 
 ### Resources
@@ -213,7 +213,7 @@ observability:
   enabled: true
   otel:
     enabled: true
-    endpoint: "http://otel-collector.monitoring:4318"
+    endpoint: "http://otel-collector.observability:4318"
 ```
 
 ### With JVM Configuration
