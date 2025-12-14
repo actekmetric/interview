@@ -1,3 +1,5 @@
+data "aws_region" "current" {}
+
 locals {
   common_tags = merge(
     {
@@ -95,7 +97,7 @@ resource "aws_iam_role_policy" "grafana_sns" {
   })
 }
 
-# Grafana Workspace API Key (for automation/provisioning)
+# Grafana Workspace API Key (optional - for API-based automation if needed)
 resource "aws_grafana_workspace_api_key" "automation" {
   count = var.create_api_key ? 1 : 0
 

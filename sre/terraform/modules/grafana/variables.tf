@@ -21,7 +21,7 @@ variable "enable_sns_notifications" {
 }
 
 variable "create_api_key" {
-  description = "Create API key for automation"
+  description = "Create API key for automation (optional - only needed for API-based integrations)"
   type        = bool
   default     = false
 }
