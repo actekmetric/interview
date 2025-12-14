@@ -1,0 +1,46 @@
+{{- if .Values.prometheusAgent.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-agent
+  labels:
+    app.kubernetes.io/name: prometheus-agent
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: observability
+rules:
+  # Discovery of pods, services, endpoints, nodes
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs: ["get", "list", "watch"]
+  # Discovery of ingresses
+  - apiGroups: ["extensions", "networking.k8s.io"]
+    resources:
+      - ingresses
+    verbs: ["get", "list", "watch"]
+  # Non-resource URLs for metrics
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-agent
+  labels:
+    app.kubernetes.io/name: prometheus-agent
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: observability
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-agent
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.prometheusAgent.serviceAccount.name }}
+    namespace: {{ .Values.namespace }}
+{{- end }}

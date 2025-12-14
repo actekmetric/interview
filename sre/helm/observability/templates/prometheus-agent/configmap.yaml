@@ -1,0 +1,53 @@
+{{- if .Values.prometheusAgent.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-agent-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: prometheus-agent
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: observability
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.prometheusAgent.scrapeInterval }}
+      scrape_timeout: {{ .Values.prometheusAgent.scrapeTimeout }}
+      external_labels:
+        cluster: {{ .Values.global.environment }}
+        region: {{ .Values.global.region }}
+
+    # Remote write configuration for AWS Managed Prometheus
+    remote_write:
+      - url: {{ .Values.prometheusAgent.amp.remoteWriteUrl }}
+        {{- if .Values.prometheusAgent.amp.sigv4.enabled }}
+        sigv4:
+          region: {{ .Values.prometheusAgent.amp.sigv4.region }}
+        {{- end }}
+        queue_config:
+          capacity: 10000
+          max_shards: 50
+          min_shards: 1
+          max_samples_per_send: 5000
+          batch_send_deadline: 5s
+          min_backoff: 30ms
+          max_backoff: 100ms
+
+    # Scrape configurations
+    scrape_configs:
+      {{- range .Values.prometheusAgent.scrapeConfigs }}
+      - job_name: {{ .job_name | quote }}
+        {{- if .kubernetes_sd_configs }}
+        kubernetes_sd_configs:
+          {{- toYaml .kubernetes_sd_configs | nindent 10 }}
+        {{- end }}
+        {{- if .static_configs }}
+        static_configs:
+          {{- toYaml .static_configs | nindent 10 }}
+        {{- end }}
+        {{- if .relabel_configs }}
+        relabel_configs:
+          {{- toYaml .relabel_configs | nindent 10 }}
+        {{- end }}
+      {{- end }}
+{{- end }}

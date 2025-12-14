@@ -1,0 +1,63 @@
+# Production Environment Values for Observability Stack
+
+global:
+  environment: prod
+  region: us-east-1
+
+prometheusAgent:
+  enabled: true
+
+  # Higher replica count for HA in production
+  replicas: 2
+
+  serviceAccount:
+    create: true
+    name: prometheus-agent
+    annotations:
+      # TODO: Replace with actual IAM role ARN from Terraform output
+      # Get from: cd sre/terragrunt/environments/prod/observability/amp && terragrunt output prometheus_agent_role_arn
+      eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/tekmetric-prod-prometheus-agent-role"
+
+  amp:
+    # TODO: Replace with actual AMP remote_write endpoint from Terraform output
+    # Get from: cd sre/terragrunt/environments/prod/observability/amp && terragrunt output workspace_endpoint
+    remoteWriteUrl: "REPLACE_WITH_AMP_REMOTE_WRITE_URL"
+    sigv4:
+      enabled: true
+      region: us-east-1
+
+  # Production scraping intervals
+  scrapeInterval: 15s  # More frequent for prod
+  scrapeTimeout: 10s
+
+  # Higher resources for production
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+
+kubeStateMetrics:
+  enabled: true
+
+  # Higher resources for production
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "400m"
+
+nodeExporter:
+  enabled: true
+
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"

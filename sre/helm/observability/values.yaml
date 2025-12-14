@@ -1,0 +1,173 @@
+# Default values for observability stack
+# This chart deploys Prometheus Agent, kube-state-metrics, and node-exporter
+# to collect metrics and send them to AWS Managed Prometheus (AMP)
+
+global:
+  # Environment name (dev, qa, prod)
+  environment: dev
+  # AWS region where AMP workspace is deployed
+  region: us-east-1
+
+# Prometheus Agent configuration
+# Scrapes metrics from pods and sends to AMP via remote_write
+prometheusAgent:
+  enabled: true
+
+  image:
+    repository: quay.io/prometheus/prometheus
+    tag: v2.48.0
+    pullPolicy: IfNotPresent
+
+  replicas: 1
+
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+  # ServiceAccount with IRSA for AMP remote_write authentication
+  serviceAccount:
+    create: true
+    name: prometheus-agent
+    annotations: {}
+      # This will be set by environment-specific values:
+      # eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/tekmetric-ENV-prometheus-agent-role"
+
+  # AWS Managed Prometheus remote_write configuration
+  amp:
+    # AMP workspace remote_write endpoint
+    # Example: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-abc123/api/v1/remote_write
+    remoteWriteUrl: ""
+    # Enable SigV4 authentication (uses IRSA role)
+    sigv4:
+      enabled: true
+      region: us-east-1
+
+  # Scrape configuration
+  scrapeInterval: 30s
+  scrapeTimeout: 10s
+
+  # Scrape pod annotations prometheus.io/scrape: "true"
+  scrapeConfigs:
+    # Scrape pods with prometheus.io annotations
+    - job_name: 'kubernetes-pods'
+      kubernetes_sd_configs:
+        - role: pod
+      relabel_configs:
+        # Only scrape pods with prometheus.io/scrape: "true"
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+          action: keep
+          regex: true
+        # Use prometheus.io/path annotation or default to /metrics
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+        # Use prometheus.io/port annotation or pod port
+        - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+          action: replace
+          regex: ([^:]+)(?::\d+)?;(\d+)
+          replacement: $1:$2
+          target_label: __address__
+        # Add namespace label
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+        # Add pod name label
+        - source_labels: [__meta_kubernetes_pod_name]
+          action: replace
+          target_label: kubernetes_pod_name
+        # Add container name label
+        - source_labels: [__meta_kubernetes_pod_container_name]
+          action: replace
+          target_label: kubernetes_container_name
+
+    # Scrape kube-state-metrics
+    - job_name: 'kube-state-metrics'
+      static_configs:
+        - targets: ['kube-state-metrics:8080']
+      relabel_configs:
+        - target_label: job
+          replacement: kube-state-metrics
+
+    # Scrape node-exporter
+    - job_name: 'node-exporter'
+      kubernetes_sd_configs:
+        - role: node
+      relabel_configs:
+        - source_labels: [__address__]
+          regex: '(.*):10250'
+          replacement: '${1}:9100'
+          target_label: __address__
+        - source_labels: [__meta_kubernetes_node_name]
+          action: replace
+          target_label: node
+
+# kube-state-metrics configuration
+# Exposes Kubernetes cluster state metrics
+kubeStateMetrics:
+  enabled: true
+
+  image:
+    repository: registry.k8s.io/kube-state-metrics/kube-state-metrics
+    tag: v2.10.1
+    pullPolicy: IfNotPresent
+
+  replicas: 1
+
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+  # Service configuration
+  service:
+    port: 8080
+    type: ClusterIP
+
+# node-exporter configuration
+# Exposes node-level system metrics
+nodeExporter:
+  enabled: true
+
+  image:
+    repository: quay.io/prometheus/node-exporter
+    tag: v1.7.0
+    pullPolicy: IfNotPresent
+
+  # Runs as DaemonSet on all nodes
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
+
+  # Host paths to mount for metrics collection
+  hostPaths:
+    - name: proc
+      path: /proc
+    - name: sys
+      path: /sys
+    - name: root
+      path: /
+
+  # Service configuration
+  service:
+    port: 9100
+    type: ClusterIP
+
+  # Run on all nodes including master
+  tolerations:
+    - effect: NoSchedule
+      operator: Exists
+
+# Namespace where observability stack is deployed
+namespace: observability
