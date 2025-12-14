@@ -179,6 +179,12 @@ jobs:
           echo "✅ Generated values file with Terraform outputs"
           cat values-dev-generated.yaml
 
+      - name: Ensure Namespace Exists
+        if: github.event.inputs.action != 'uninstall'
+        run: |
+          kubectl create namespace observability --dry-run=client -o yaml | kubectl apply -f -
+          echo "✅ Namespace 'observability' is ready"
+
       - name: Deploy/Upgrade Observability Stack
         if: github.event.inputs.action != 'uninstall'
         run: |
@@ -186,7 +192,6 @@ jobs:
 
           helm upgrade --install observability . \
             --namespace observability \
-            --create-namespace \
             --values values-dev-generated.yaml \
             --wait \
             --timeout 10m
@@ -361,6 +366,12 @@ jobs:
                 cpu: "100m"
           EOF
 
+      - name: Ensure Namespace Exists
+        if: github.event.inputs.action != 'uninstall'
+        run: |
+          kubectl create namespace observability --dry-run=client -o yaml | kubectl apply -f -
+          echo "✅ Namespace 'observability' is ready"
+
       - name: Deploy/Upgrade Observability Stack
         if: github.event.inputs.action != 'uninstall'
         run: |
@@ -368,7 +379,6 @@ jobs:
 
           helm upgrade --install observability . \
             --namespace observability \
-            --create-namespace \
             --values values-qa-generated.yaml \
             --wait \
             --timeout 10m

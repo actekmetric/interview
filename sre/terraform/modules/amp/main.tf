@@ -197,7 +197,7 @@ resource "aws_iam_role" "prometheus_agent" {
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
           StringEquals = {
-            "${var.cluster_oidc_issuer}:sub" = "system:serviceaccount:monitoring:prometheus-agent"
+            "${var.cluster_oidc_issuer}:sub" = "system:serviceaccount:observability:prometheus-agent"
             "${var.cluster_oidc_issuer}:aud" = "sts.amazonaws.com"
           }
         }
