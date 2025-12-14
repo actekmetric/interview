@@ -1,5 +1,17 @@
 # Observability Strategy
 
+## Related Documentation
+
+This document provides complete observability implementation details. For related information:
+
+- **Quick Overview:** [PRESENTATION.md](PRESENTATION.md) - High-level observability summary (Slide 6)
+- **Architecture Context:** [ARCHITECTURE.md](ARCHITECTURE.md) - Overall system architecture
+- **CI/CD Deployment:** [observability/cd-workflow.md](observability/cd-workflow.md) - Automated deployment of observability stack
+- **Backend Integration:** [observability/backend-integration.md](observability/backend-integration.md) - Integrating backend services with observability
+- **Helm Chart:** [../../helm/observability/README.md](../helm/observability/README.md) - Observability Helm chart documentation
+
+---
+
 ## Overview
 
 This document describes the observability features implemented in the Tekmetric Interview Backend Service, including metrics collection, logging, and distributed tracing capabilities.

@@ -1,5 +1,17 @@
 # Complete Setup Guide - From Zero to Production
 
+## Related Documentation
+
+This guide provides step-by-step setup instructions. For related information:
+
+- **Architecture Details:** [ARCHITECTURE.md](ARCHITECTURE.md) - Complete technical architecture
+- **Quick Overview:** [PRESENTATION.md](PRESENTATION.md) - High-level summary
+- **Staged Deployment:** [STAGED-DEPLOYMENT.md](STAGED-DEPLOYMENT.md) - Terraform deployment strategy
+- **Git Workflow:** [GIT-WORKFLOW.md](GIT-WORKFLOW.md) - Branch strategy after setup
+- **CI/CD Workflows:** [github/workflows.md](github/workflows.md) - Using GitHub Actions workflows
+
+---
+
 This guide walks you through setting up the entire infrastructure from scratch, starting with a fresh AWS account.
 
 ## Prerequisites

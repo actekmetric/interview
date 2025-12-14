@@ -1,5 +1,17 @@
 # GitHub Workflows Documentation
 
+## Related Documentation
+
+For related information about workflows and infrastructure:
+
+- **Quick Overview:** [../PRESENTATION.md](../PRESENTATION.md) - High-level CI/CD summary (Slide 4)
+- **Architecture Context:** [../ARCHITECTURE.md](../ARCHITECTURE.md) - Complete CI/CD pipeline architecture
+- **Custom Actions:** [actions.md](actions.md) - Reusable composite actions documentation
+- **Git Workflow:** [../GIT-WORKFLOW.md](../GIT-WORKFLOW.md) - Branch strategy and deployment process
+- **Staged Deployment:** [../STAGED-DEPLOYMENT.md](../STAGED-DEPLOYMENT.md) - Terraform deployment stages
+
+---
+
 This directory contains GitHub Actions workflows for managing infrastructure and application deployments.
 
 ## Overview

@@ -1,5 +1,18 @@
 # Interview Presentation - 10 Minutes
 
+## Related Documentation
+
+This presentation provides a high-level overview for a 10-minute interview format. For detailed information:
+
+- **Complete Architecture:** [ARCHITECTURE.md](ARCHITECTURE.md) - Detailed diagrams and technical explanations
+- **Infrastructure Setup:** [SETUP-GUIDE.md](SETUP-GUIDE.md) - Step-by-step deployment instructions
+- **Observability Stack:** [OBSERVABILITY.md](OBSERVABILITY.md) - Complete metrics, logging, and tracing implementation
+- **CI/CD Workflows:** [github/workflows.md](github/workflows.md) - Detailed workflow documentation and usage
+- **Git Workflow:** [GIT-WORKFLOW.md](GIT-WORKFLOW.md) - Branch strategy and deployment process
+- **Staged Deployment:** [STAGED-DEPLOYMENT.md](STAGED-DEPLOYMENT.md) - Terraform deployment strategy
+
+---
+
 ## Presentation Structure
 
 **Total Time:** 10 minutes
@@ -38,58 +51,34 @@
 
 ## Slide 2: Architecture Overview (2 minutes)
 
-### High-Level Architecture Diagram
+### High-Level Architecture
 
-```mermaid
-graph TB
-    subgraph "GitHub"
-        CODE[Source Code]
-        ACTIONS[GitHub Actions]
-    end
-
-    subgraph "AWS Account - Dev"
-        subgraph "VPC 10.0.0.0/16"
-            subgraph "Public Subnets"
-                NAT[NAT Gateway]
-                IGW[Internet Gateway]
-            end
-            subgraph "Private Subnets"
-                subgraph "EKS Cluster"
-                    PODS[Backend Pods]
-                end
-            end
-        end
-        ECR[ECR<br/>Docker Registry]
-        S3[S3<br/>Helm Charts<br/>TF State]
-        CW[CloudWatch<br/>Logs]
-    end
-
-    CODE --> ACTIONS
-    ACTIONS -->|OIDC Auth| ECR
-    ACTIONS -->|OIDC Auth| S3
-    ACTIONS -->|OIDC Auth| EKS
-    ECR --> PODS
-    S3 --> PODS
-    PODS --> CW
-    IGW --> NAT
-    NAT --> PODS
+```
+GitHub Actions (OIDC) → AWS Multi-Account Setup
+                        ├── Dev (VPC → EKS → Backend Pods)
+                        ├── QA (VPC → EKS → Backend Pods)
+                        └── Prod (VPC → EKS → Backend Pods)
+                             ↓
+                        ECR, S3 (Helm + TF State), CloudWatch
 ```
 
 **Key Components:**
-1. **Multi-Account Structure:** Separate AWS accounts for dev, qa, prod
+1. **Multi-Account:** Separate AWS accounts (dev/qa/prod) for isolation
 2. **Networking:** Multi-AZ VPC with public/private subnets
 3. **Kubernetes:** EKS 1.34 with managed node groups
-4. **Container Registry:** ECR for Docker images
-5. **Helm Repository:** S3-based chart storage
-6. **State Management:** S3 + DynamoDB for Terraform state
-7. **Logging:** CloudWatch for cluster and application logs
+4. **CI/CD:** GitHub Actions with OIDC (no static credentials)
+5. **Storage:** ECR (images), S3 (Helm charts, Terraform state)
+6. **Observability:** CloudWatch, AWS Managed Prometheus/Grafana
 
 **Security Highlights:**
-- GitHub OIDC for authentication (no static credentials)
+- GitHub OIDC authentication (no long-lived credentials)
 - IRSA for pod-level IAM permissions
-- Private subnets for application workloads
-- Security groups and network policies
+- Private subnets for workloads
 - Non-root containers with dropped capabilities
+
+📖 **For detailed architecture diagrams and explanations:**
+- [ARCHITECTURE.md Section 1-2](ARCHITECTURE.md#1-high-level-system-architecture) - Complete network and AWS architecture
+- [ARCHITECTURE.md Section 3](ARCHITECTURE.md#3-cicd-pipeline-architecture) - CI/CD pipeline details
 
 ---
 
@@ -97,81 +86,44 @@ graph TB
 
 ### Staged Deployment Strategy
 
-**The Problem:** Circular dependencies between EKS and IAM
-- EKS needs IAM roles for node groups
-- IAM IRSA roles need EKS OIDC URL
-- Traditional approaches use complex mocks or manual ordering
+**The Problem:** Circular dependencies (EKS ↔ IAM)
+- EKS needs IAM roles, IAM IRSA needs EKS OIDC URL
 
-**The Solution:** Staged Deployment
+**The Solution:** 4-Stage Sequential Deployment
 ```
-Stage 1: Networking
-  ↓ (outputs: vpc_id, subnet_ids)
+Stage 1: Networking (VPC, subnets, NAT)
+    ↓
 Stage 2: EKS Cluster
-  ↓ (outputs: oidc_url, cluster_endpoint)
-Stage 3: IAM
-  ↓ (outputs: role_arns)
+    ↓
+Stage 3: IAM (IRSA roles)
+    ↓
 Stage 4: EKS Addons
 ```
 
-**Benefits:**
-- ✅ No circular dependencies
-- ✅ Clear execution order
-- ✅ Granular control
-- ✅ Easy troubleshooting
-- ✅ Can update single stage without affecting others
+**Key Benefits:**
+- ✅ Eliminates circular dependencies (no mocks needed)
+- ✅ Clear execution order and troubleshooting
+- ✅ Granular updates (change one stage without affecting others)
 
-### Terraform + Terragrunt Structure
+### Infrastructure Stack
 
 **Terraform Modules:**
-```
-terraform/modules/
-├── bootstrap/      # S3 backend, OIDC, DynamoDB
-├── networking/     # VPC, subnets, NAT, SGs
-├── eks/            # EKS cluster + node groups
-├── eks-addons/     # VPC CNI, CoreDNS, EBS CSI
-├── iam/            # OIDC + IRSA roles
-└── ecr/            # Container registries
-```
+- Bootstrap, Networking, EKS, EKS Add-ons, IAM, ECR, AMP, Grafana
 
-**Terragrunt Configuration:**
-```
-terragrunt/
-├── terragrunt.hcl              # Root config
-└── environments/
-    ├── dev/
-    │   ├── account.hcl         # env-specific: k8s_version, account_id
-    │   ├── region.hcl          # region and AZs
-    │   ├── 1-networking/       # Stage 1
-    │   ├── 2-eks-cluster/      # Stage 2
-    │   ├── 3-iam/              # Stage 3
-    │   └── 4-eks-addons/       # Stage 4
-    ├── qa/
-    └── prod/
-```
+**Terragrunt:**
+- DRY principle with environment-specific overrides (dev/qa/prod)
+- Remote state: S3 + DynamoDB locking
+- Automated via GitHub Actions workflow
 
-**Key Features:**
-- **DRY Principle:** Modules reused across environments
-- **Environment-Specific:** k8s_version, instance types, replica counts per environment
-- **Remote State:** S3 with DynamoDB locking
-- **Provider Generation:** Terragrunt auto-generates provider configs
+**Deployment Methods:**
+1. GitHub Actions UI (select environment + stage)
+2. PR comments: `/terraform apply dev 1-networking`
+3. Local CLI: `cd environments/dev/1-networking && terragrunt apply`
 
-### Deployment Methods
-
-1. **GitHub Actions UI:** Select environment + stage → plan/apply
-2. **PR Comments:** `/terraform plan dev 1-networking`
-3. **Local CLI:** `cd environments/dev/networking && terragrunt apply`
-
-**Example Deployment:**
-```bash
-# Fresh environment (4 sequential runs)
-1. /terraform apply dev 1-networking
-2. /terraform apply dev 2-eks-cluster
-3. /terraform apply dev 3-iam
-4. /terraform apply dev 4-eks-addons
-
-# Update single module
-/terraform apply dev 3-iam
-```
+📖 **For complete infrastructure details:**
+- [STAGED-DEPLOYMENT.md](STAGED-DEPLOYMENT.md) - Complete staged deployment strategy
+- [ARCHITECTURE.md Section 4](ARCHITECTURE.md#4-terraform-staged-deployment-architecture) - Detailed dependency flow
+- [SETUP-GUIDE.md](SETUP-GUIDE.md) - Step-by-step deployment instructions
 
 ---
 
@@ -193,75 +145,21 @@ graph LR
     I --> J[Health Check]
 ```
 
-**Backend CI Workflow (service-backend-ci.yml):**
-1. **Build & Test:**
-   - Maven compilation (Java 17)
-   - Unit test execution
-   - Branch detection and environment mapping
-   - Version generation: `<base>.<build>-<sha>-<suffix>` (suffix: `-dev`, `-rc`, or none)
+**Pipeline Flow:**
+1. **Backend CI:** Build → Test → Docker (multi-platform) → Trivy Scan → Publish (ECR + Helm)
+2. **Backend CD:** Auto-deploy to dev/qa/prod based on branch
+3. **Security:** All builds scanned with Trivy, results in GitHub Security tab
+4. **Authentication:** GitHub OIDC (no static credentials)
 
-2. **Docker Build:**
-   - Multi-platform (amd64, arm64)
-   - OpenTelemetry agent pre-installed
-   - Security best practices (non-root user, Alpine base)
+**Key Features:**
+- Branch-based versioning: `1.0.0.42-abc1234-dev`
+- Multi-platform images (amd64, arm64)
+- 8 custom reusable actions (DRY principle)
+- Automated deployment: develop → dev, release/* → qa, master → prod
 
-3. **Security:**
-   - Trivy vulnerability scanning (ALL builds)
-   - SARIF report to GitHub Security tab
-   - Configurable severity thresholds
-
-4. **Publish (deployable branches only):**
-   - Push image to ECR (develop, release/*, master, hotfix/*)
-   - Package and publish Helm chart to S3
-
-**Backend CD Workflow (service-backend-cd.yml):**
-1. **Automatic Trigger:** After CI completes (deployable branches only, NOT PRs)
-2. **Environment Determination:** Branch-based (develop → dev, release/* → qa, master → prod)
-3. **AWS Authentication:** GitHub OIDC (no credentials)
-4. **Deployment:** Helm upgrade --install with atomic flag
-5. **Verification:** Health check endpoints and smoke tests
-
-### Custom Composite Actions
-
-**Reusable building blocks:**
-- `terraform-setup`: Install Terraform/Terragrunt with caching
-- `aws-assume-role`: OIDC-based AWS authentication
-- `docker-build`: Local Docker image builds (no push)
-- `ecr-publish`: Publish images to Amazon ECR
-- `trivy-scan`: Container security scanning
-- `helm-publish`: Chart validation and publishing
-- `helm-deploy`: Kubernetes deployment
-- `workload-scale`: Cost optimization (start/stop)
-
-**Benefits:**
-- Consistent across workflows
-- Easy to maintain
-- Reduced duplication
-- Testable in isolation
-
-### Version Management
-
-**Branch-Based Versioning:**
-```
-Format: <base>.<build>-<sha>-<suffix>
-
-Examples:
-- develop:    1.0.0.42-abc1234-dev
-- release/*:  1.0.0.42-abc1234-rc
-- master:     1.0.0.42-abc1234
-- feature/*:  1.0.0.42-abc1234-feature-{name}
-- hotfix/*:   1.0.0.42-abc1234-hotfix-{name}
-
-Components:
-- Base: from pom.xml (1.0.0)
-- Build: GitHub Actions run number (42)
-- SHA: Short git commit hash (abc1234)
-- Suffix: Determined by branch name
-```
-
-**Image Tagging:**
-- Branch-based tags only (no `latest` tag)
-- Each build has unique version based on branch
+📖 **For complete CI/CD details:**
+- [github/workflows.md](github/workflows.md) - Complete workflow documentation
+- [github/actions.md](github/actions.md) - Custom composite actions details
 
 ---
 
@@ -295,110 +193,23 @@ helm/
 
 ### Production Features
 
-**1. Resource Management:**
-```yaml
-resources:
-  limits:
-    cpu: 1000m
-    memory: 1Gi
-  requests:
-    cpu: 250m
-    memory: 512Mi
-```
-- Prevents resource exhaustion
-- Enables proper scheduling
-- Supports HPA decisions
+**7 Key Production Features Built-In:**
+1. **Resource Management** - CPU/memory limits and requests
+2. **Health Probes** - Liveness, readiness, startup probes
+3. **High Availability** - Pod Disruption Budgets, anti-affinity
+4. **Zero-Downtime Deployments** - Rolling updates (maxUnavailable: 0)
+5. **Security** - Non-root containers, dropped capabilities, seccomp
+6. **Autoscaling (HPA)** - CPU/memory-based scaling
+7. **IRSA Support** - Pod-level IAM permissions
 
-**2. Health Probes:**
-```yaml
-livenessProbe:     # Restart if unhealthy
-  path: /actuator/health/liveness
-  initialDelaySeconds: 60
+**Benefits:**
+- Self-healing (automatic restarts via health probes)
+- Graceful shutdown (30s termination grace period)
+- No privilege escalation
+- Immutable deployment patterns
 
-readinessProbe:    # Remove from service if not ready
-  path: /actuator/health/readiness
-  initialDelaySeconds: 30
-
-startupProbe:      # Allow slow startup (30 * 10s = 5 min max)
-  failureThreshold: 30
-```
-
-**3. High Availability:**
-```yaml
-podDisruptionBudget:
-  enabled: true
-  minAvailable: 1    # Always keep 1 pod running
-
-affinity:
-  enabled: true
-  type: soft         # Spread pods across nodes
-```
-
-**4. Zero-Downtime Deployments:**
-```yaml
-strategy:
-  type: RollingUpdate
-  rollingUpdate:
-    maxSurge: 1           # Extra pod during update
-    maxUnavailable: 0     # No downtime
-
-terminationGracePeriodSeconds: 30   # Graceful shutdown
-```
-
-**5. Security:**
-```yaml
-podSecurityContext:
-  runAsNonRoot: true
-  runAsUser: 1000
-  fsGroup: 1000
-
-securityContext:
-  allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: false    # Spring Boot needs write
-  capabilities:
-    drop: [ALL]
-```
-
-**6. Autoscaling (Optional):**
-```yaml
-autoscaling:
-  enabled: false      # Enable for production
-  minReplicas: 2
-  maxReplicas: 10
-  targetCPU: 70       # Scale at 70% CPU
-  targetMemory: 80    # Scale at 80% memory
-```
-
-**7. IRSA Support:**
-```yaml
-serviceAccount:
-  create: true
-  name: backend-sa
-  annotations:
-    eks.amazonaws.com/role-arn: "arn:aws:iam::...:role/backend-irsa"
-```
-- Pod-level IAM permissions
-- No credentials in code
-- Automatic token rotation
-
-### Demo kubectl Commands
-
-```bash
-# Check deployment
-kubectl get deployments -n backend-services
-
-# Check pods
-kubectl get pods -n backend-services
-
-# Describe deployment (show all features)
-kubectl describe deployment backend -n backend-services
-
-# Rollout history
-kubectl rollout history deployment/backend -n backend-services
-
-# Resource usage
-kubectl top pods -n backend-services
-```
+📖 **For complete Helm production features and YAML examples:**
+- [helm/PRODUCTION-FEATURES.md](helm/PRODUCTION-FEATURES.md) - Detailed guide with all configurations, best practices, and troubleshooting
 
 ---
 
@@ -406,62 +217,33 @@ kubectl top pods -n backend-services
 
 ### Current Implementation
 
-**1. Spring Boot Actuator:**
-- `/actuator/health` - Overall health
-- `/actuator/health/liveness` - K8s liveness probe
-- `/actuator/health/readiness` - K8s readiness probe
-- `/actuator/metrics` - Available metrics
-- `/actuator/prometheus` - Prometheus-formatted metrics
+**Observability Stack:**
+1. **Spring Boot Actuator** - Health probes, metrics endpoints
+2. **AWS Managed Prometheus (AMP)** - Metrics storage and alerting (8 alert rules)
+3. **AWS Managed Grafana (AMG)** - Visualization and dashboards
+4. **CloudWatch** - Application and cluster logs (Fluent Bit integration)
+5. **OpenTelemetry Agent** - Pre-installed, ready for distributed tracing
 
-**2. Prometheus Metrics (Ready):**
-```yaml
-podAnnotations:
-  prometheus.io/scrape: "true"
-  prometheus.io/port: "8080"
-  prometheus.io/path: "/actuator/prometheus"
-```
+**Key Features:**
+- ✅ Prometheus metrics exposed at `/actuator/prometheus`
+- ✅ Health probes for Kubernetes (liveness, readiness, startup)
+- ✅ Alert rules configured (service down, high error rate, memory, latency)
+- ✅ SNS notifications for alerts
+- ✅ Grafana datasource configured (AMP with SigV4 auth)
+- ⚠️ Dashboards need creation
 
-**Available Metrics:**
-- JVM: Memory, GC, threads, classes
-- HTTP: Request count, duration, status codes
-- System: CPU, load average, uptime
-- Custom: Application-specific metrics
+**Metrics Available:**
+- JVM (memory, GC, threads), HTTP (requests, latency, errors), System (CPU, uptime)
 
-**3. OpenTelemetry (Integrated):**
-- Java agent v1.32.0 pre-installed
-- Automatic instrumentation: HTTP, JDBC, logging
-- Ready for distributed tracing
-- Waiting for OTEL collector deployment
+**Next Steps:**
+1. Create Grafana dashboards (backend service, EKS cluster)
+2. Deploy OTEL Collector for distributed tracing
+3. Set up alerting integrations (PagerDuty/Slack)
 
-**4. CloudWatch Logging:**
-- EKS cluster logs (API, audit, authenticator)
-- VPC Flow Logs for network monitoring
-- Application logs via kubectl
-
-### Observability Demo
-
-```bash
-# Health check
-curl http://localhost:8080/actuator/health
-
-# List metrics
-curl http://localhost:8080/actuator/metrics
-
-# Prometheus metrics
-curl http://localhost:8080/actuator/prometheus | grep jvm_memory
-
-# View logs
-kubectl logs -f deployment/backend -n backend-services
-```
-
-### Future Enhancements
-
-**Would Deploy Next:**
-1. **kube-prometheus-stack** - Prometheus + Grafana + Alertmanager
-2. **Jaeger/Tempo** - Distributed tracing backend
-3. **Loki** - Log aggregation
-4. **Alerting** - PagerDuty/Slack integration
-5. **Dashboards** - Grafana dashboards for JVM, HTTP, infrastructure
+📖 **For complete observability details:**
+- [OBSERVABILITY.md](OBSERVABILITY.md) - Complete implementation guide (metrics, logging, tracing)
+- [observability/cd-workflow.md](observability/cd-workflow.md) - Automated deployment workflow
+- [observability/backend-integration.md](observability/backend-integration.md) - Backend service integration
 
 ---
 
@@ -499,29 +281,262 @@ kubectl logs -f deployment/backend -n backend-services
 
 ---
 
-## What Would I Add Next?
+## Current Implementation Status
 
-### Short Term (1-2 weeks):
-1. **Monitoring Stack:** Deploy Prometheus + Grafana
-2. **Tracing:** Deploy OpenTelemetry Collector + Jaeger
-3. **Dashboards:** Create Grafana dashboards for key metrics
-4. **Alerting:** Set up critical alerts (service down, high error rate)
-5. **Log Aggregation:** Deploy Loki for centralized logging
+### ✅ Completed Components
 
-### Medium Term (1-2 months):
-1. **GitOps:** Implement ArgoCD for declarative deployments
-2. **Secrets Management:** Integrate AWS Secrets Manager with IRSA
-3. **Service Mesh:** Add Istio/Linkerd for advanced traffic management
-4. **Database:** Replace H2 with RDS (PostgreSQL/MySQL)
-5. **Caching:** Add Redis for application caching
+**Infrastructure (Terraform/Terragrunt):**
+- ✅ Multi-account AWS setup (dev, qa, prod)
+- ✅ Staged deployment architecture (4 stages, eliminates circular dependencies)
+- ✅ VPC with public/private subnets across 3 AZs
+- ✅ EKS cluster (Kubernetes 1.34) with managed node groups
+- ✅ GitHub OIDC provider (no long-lived credentials)
+- ✅ IRSA roles for pod-level IAM permissions
+- ✅ ECR repositories for container images
+- ✅ S3-based Helm chart repository
+- ✅ Remote state management (S3 + DynamoDB locking)
 
-### Long Term (3-6 months):
-1. **Multi-Region:** Deploy to multiple AWS regions
-2. **Blue/Green or Canary:** Advanced deployment strategies
-3. **API Gateway:** Add Kong/Ambassador for API management
-4. **Cost Optimization:** Implement spot instances, karpenter
-5. **Compliance:** Add policy enforcement (OPA, Kyverno)
-6. **Backup/DR:** Implement Velero for K8s backup/restore
+**CI/CD (GitHub Actions):**
+- ✅ Backend CI workflow (build, test, scan, publish)
+- ✅ Backend CD workflow (automated deployment)
+- ✅ Multi-platform Docker builds (amd64, arm64)
+- ✅ Security scanning with Trivy
+- ✅ Branch-based versioning and deployment
+- ✅ Terraform GitOps workflow
+- ✅ Custom composite actions (reusable)
+- ✅ Cost optimization workflows (start/stop)
+
+**Kubernetes & Helm:**
+- ✅ Production-ready Helm library chart (tekmetric-common-chart)
+- ✅ Backend service deployment with all production features
+- ✅ Health probes (liveness, readiness, startup)
+- ✅ Resource limits and requests
+- ✅ Pod Disruption Budgets
+- ✅ Security contexts (non-root, dropped capabilities)
+- ✅ Rolling update strategy (zero downtime)
+- ✅ HPA support (configurable)
+
+**Observability:**
+- ✅ Spring Boot Actuator with Prometheus metrics
+- ✅ OpenTelemetry Java agent integrated
+- ✅ AWS Managed Prometheus (AMP) workspace deployed
+- ✅ AWS Managed Grafana (AMG) workspace deployed
+- ✅ Prometheus Agent Helm chart with IRSA
+- ✅ Alert rules configured in AMP (8 rules: service down, high error rate, memory, latency, etc.)
+- ✅ SNS topic for alert notifications
+- ✅ CloudWatch Observability add-on (Fluent Bit)
+- ✅ Pod logs forwarded to CloudWatch
+- ✅ IAM permissions fixed for Grafana to query AMP alert rules
+- ✅ Grafana datasource configured (AMP with SigV4 auth, alerts disabled)
+
+### 🚧 In Progress / Needs Configuration
+
+**Observability:**
+- ⚠️ Grafana dashboards not yet created
+- ⚠️ OpenTelemetry Collector not deployed
+- ⚠️ Tracing backend (Jaeger/Tempo) not deployed
+
+**Multi-Environment:**
+- ⚠️ QA and Prod environments not fully deployed (Terraform code ready)
+- ⚠️ Environment-specific configurations need validation
+
+---
+
+## Next Steps for Production Readiness
+
+### Immediate (Complete Observability - 1-2 days)
+1. **Create Grafana Dashboards:**
+   - Backend service dashboard (request rate, latency, errors, JVM metrics)
+   - EKS cluster dashboard (node CPU/memory, pod count, restarts)
+   - Import community dashboards for Kubernetes monitoring
+
+2. **Verify Alert Rules:**
+   - Test alert firing by scaling backend to 0 replicas
+   - Verify SNS email notifications
+   - Confirm alerts visible in Grafana Explore
+
+3. **Deploy OpenTelemetry Collector:**
+   - Deploy OTEL Collector to observability namespace
+   - Configure to receive traces and forward to backend
+   - Enable OTEL in backend Helm values
+
+### Short Term (Production Foundations - 1-2 weeks)
+1. **Distributed Tracing:**
+   - Deploy Jaeger or Tempo as tracing backend
+   - Enable OpenTelemetry in backend application
+   - Create service dependency map
+   - Set up trace sampling (1-10% in prod)
+
+2. **Alerting & On-Call:**
+   - Integrate with PagerDuty or OpsGenie
+   - Create runbooks for common alerts
+   - Set up escalation policies
+   - Test alert routing
+
+3. **Deploy to QA Environment:**
+   - Apply Terraform to QA account
+   - Deploy backend service to QA EKS
+   - Validate CI/CD pipeline (release branches → QA)
+   - Test observability stack
+
+4. **Enhanced Security:**
+   - Deploy AWS Secrets Manager with External Secrets Operator
+   - Rotate all credentials and secrets
+   - Enable EKS pod security standards
+   - Add network policies for pod-to-pod communication
+
+5. **Documentation:**
+   - Create operational runbooks
+   - Document disaster recovery procedures
+   - Create troubleshooting guides
+   - Update architecture diagrams for observability
+
+### Medium Term (Production Scaling - 1-2 months)
+1. **GitOps & Continuous Delivery:**
+   - Implement ArgoCD for declarative deployments
+   - Git as single source of truth for K8s manifests
+   - Automated sync and rollback capabilities
+   - Progressive delivery with Argo Rollouts
+
+2. **Database & Persistence:**
+   - Replace H2 with Amazon RDS (PostgreSQL or MySQL)
+   - Implement database migration strategy (Flyway/Liquibase)
+   - Set up automated backups and point-in-time recovery
+   - Configure read replicas for production
+
+3. **Caching Layer:**
+   - Deploy Amazon ElastiCache (Redis)
+   - Implement caching strategy for frequently accessed data
+   - Session management with Redis
+
+4. **Service Mesh (if needed):**
+   - Evaluate Istio vs Linkerd based on requirements
+   - Implement for advanced traffic management (retries, circuit breakers)
+   - Mutual TLS between services
+   - Fine-grained authorization policies
+
+5. **Deploy to Production:**
+   - Apply Terraform to prod account
+   - Deploy backend with higher replica count
+   - Enable HPA and PDB
+   - Validate disaster recovery procedures
+   - Perform load testing
+
+### Long Term (Advanced Capabilities - 3-6 months)
+1. **Multi-Region:**
+   - Deploy to us-west-2 for redundancy
+   - Implement Route53 health checks and failover
+   - Database replication across regions
+   - Global load balancing
+
+2. **Advanced Deployment Strategies:**
+   - Blue/Green deployments for critical services
+   - Canary deployments with automated rollback
+   - Feature flags for gradual rollouts
+
+3. **Cost Optimization:**
+   - Implement Karpenter for intelligent node provisioning
+   - Use Spot instances for non-critical workloads
+   - Set up cost anomaly detection
+   - Right-sizing recommendations based on metrics
+
+4. **Compliance & Governance:**
+   - Implement Open Policy Agent (OPA) or Kyverno
+   - Policy-as-code for security and compliance
+   - Automated compliance reporting
+   - Audit logging and retention
+
+5. **API Gateway:**
+   - Deploy Kong or Ambassador for API management
+   - Rate limiting and throttling
+   - API versioning and deprecation
+   - Developer portal
+
+6. **Backup & Disaster Recovery:**
+   - Implement Velero for Kubernetes backup/restore
+   - Regular DR drills and testing
+   - RTO/RPO documentation and validation
+   - Automated recovery procedures
+
+---
+
+## Production Readiness Checklist
+
+### Infrastructure
+- ✅ Multi-account setup with environment isolation
+- ✅ Infrastructure as Code (Terraform/Terragrunt)
+- ✅ Automated provisioning via CI/CD
+- ⚠️ QA environment deployment (code ready, needs deployment)
+- ⚠️ Production environment deployment (code ready, needs deployment)
+- ❌ Multi-region redundancy
+- ❌ Disaster recovery tested and documented
+
+### Security
+- ✅ GitHub OIDC (no long-lived credentials)
+- ✅ IRSA for pod-level IAM permissions
+- ✅ Non-root containers with dropped capabilities
+- ✅ Private subnets for application workloads
+- ✅ Security groups and network policies
+- ⚠️ Secrets management (using K8s secrets, should migrate to AWS Secrets Manager)
+- ❌ Pod Security Standards enforced
+- ❌ Network policies for pod-to-pod traffic
+- ❌ Regular security scanning and patching process
+
+### Observability
+- ✅ Metrics exposed (Prometheus format)
+- ✅ Application health probes
+- ✅ Logging to CloudWatch
+- ✅ AWS Managed Prometheus deployed
+- ✅ AWS Managed Grafana deployed
+- ✅ Grafana datasource configured (AMP with SigV4 auth)
+- ✅ Alert rules configured
+- ⚠️ Grafana dashboards (need creation)
+- ⚠️ Distributed tracing (agent ready, collector not deployed)
+- ❌ On-call rotation and escalation
+- ❌ Runbooks for common incidents
+
+### Reliability
+- ✅ Zero-downtime deployments (rolling updates)
+- ✅ Pod Disruption Budgets
+- ✅ Health probes for self-healing
+- ✅ Resource limits and requests
+- ⚠️ HPA configured (disabled by default, ready to enable)
+- ❌ Chaos engineering / resilience testing
+- ❌ Load testing and capacity planning
+- ❌ Validated DR procedures
+
+### CI/CD
+- ✅ Automated builds and tests
+- ✅ Security scanning (Trivy)
+- ✅ Multi-platform container images
+- ✅ Branch-based deployment strategy
+- ✅ Automated deployment to dev
+- ⚠️ Automated deployment to QA (via release branches)
+- ❌ Production deployment with approval gates
+- ❌ Automated rollback on failure
+- ❌ Deployment notifications (Slack/Teams)
+
+### Database & State
+- ✅ State management (S3 + DynamoDB locking)
+- ❌ Production database (currently using H2 in-memory)
+- ❌ Database migrations (Flyway/Liquibase)
+- ❌ Automated backups
+- ❌ Point-in-time recovery
+- ❌ Read replicas for scaling
+
+### Cost Management
+- ✅ Start/stop workflows for dev/qa
+- ✅ Environment-specific instance sizes
+- ✅ Single NAT gateway in dev
+- ❌ Spot instances for non-critical workloads
+- ❌ Karpenter for intelligent scaling
+- ❌ Cost anomaly detection
+- ❌ Regular cost reviews
+
+**Legend:**
+- ✅ Implemented and working
+- ⚠️ Partially implemented or needs configuration
+- ❌ Not yet implemented
 
 ---
 

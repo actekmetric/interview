@@ -1,5 +1,18 @@
 # Infrastructure Architecture Documentation
 
+## Related Documentation
+
+This document provides complete technical architecture details. For related information:
+
+- **Quick Overview:** [PRESENTATION.md](PRESENTATION.md) - 10-minute high-level presentation
+- **Setup Instructions:** [SETUP-GUIDE.md](SETUP-GUIDE.md) - Step-by-step deployment guide
+- **Git Workflow:** [GIT-WORKFLOW.md](GIT-WORKFLOW.md) - Branch strategy and deployment process
+- **Staged Deployment:** [STAGED-DEPLOYMENT.md](STAGED-DEPLOYMENT.md) - Terraform deployment strategy details
+- **CI/CD Workflows:** [github/workflows.md](github/workflows.md) - GitHub Actions implementation
+- **Observability:** [OBSERVABILITY.md](OBSERVABILITY.md) - Metrics, logging, and tracing
+
+---
+
 ## Overview
 
 This document provides detailed architecture diagrams and explanations for the Tekmetric Interview SRE infrastructure.
@@ -11,11 +24,6 @@ This document provides detailed architecture diagrams and explanations for the T
 - GitHub Actions CI/CD with OIDC authentication
 - Amazon EKS with production-ready Helm charts
 - Comprehensive security (IRSA, VPC endpoints, encryption)
-
-**Related Documentation:**
-- [Git Workflow](GIT-WORKFLOW.md) - Branch-based deployment workflow and usage
-- [Staged Deployment](STAGED-DEPLOYMENT.md) - Terraform infrastructure deployment strategy
-- [Setup Guide](SETUP-GUIDE.md) - Step-by-step infrastructure setup
 
 ---
 
