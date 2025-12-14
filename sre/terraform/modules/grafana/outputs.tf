@@ -24,7 +24,7 @@ output "grafana_role_name" {
 }
 
 output "api_key" {
-  description = "Grafana API key for automation (sensitive)"
+  description = "Grafana API key for automation (sensitive, null if not created)"
   value       = var.create_api_key ? aws_grafana_workspace_api_key.automation[0].key : null
   sensitive   = true
 }

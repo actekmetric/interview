@@ -28,8 +28,8 @@ inputs = {
   # Enable SNS notifications
   enable_sns_notifications = true
 
-  # Don't create API key by default
-  create_api_key = false
+  # API key not needed for manual datasource configuration
+  # create_api_key = false (default)
 
   tags = {
     Environment = local.environment
