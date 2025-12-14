@@ -721,10 +721,16 @@ graph TB
         FLUENT[Fluent Bit DaemonSet<br/>CloudWatch Observability Add-on]
     end
 
-    subgraph "AWS"
+    subgraph "AWS Managed Services"
+        AMP["AWS Managed Prometheus (AMP)<br/>Metrics storage & alerting"]
+        AMG["AWS Managed Grafana (AMG)<br/>Visualization & dashboards"]
         CW_LOGS[CloudWatch Logs<br/>/aws/containerinsights/]
         CW_CONTROL[CloudWatch Logs<br/>EKS Control Plane]
         FLOW_LOGS[VPC Flow Logs]
+    end
+
+    subgraph "Prometheus Agent (Deployed)"
+        PROM_AGENT[Prometheus Agent<br/>Scrapes metrics]
     end
 
     APP --> ACTUATOR
@@ -738,20 +744,31 @@ graph TB
     POD --> ANNOTATIONS
     POD --> SVC
 
-    SVC -.ready for.-> PROMETHEUS[Prometheus<br/>(Not yet deployed)]
-    OTEL -.ready for.-> COLLECTOR[OTEL Collector<br/>(Not yet deployed)]
+    ANNOTATIONS -.->|prometheus.io annotations| PROM_AGENT
+    SVC -->|/actuator/prometheus| PROM_AGENT
+    PROM_AGENT -->|remote_write| AMP
+    AMP --> AMG
+
+    OTEL -.ready for.-> COLLECTOR["OTEL Collector (Not deployed)"]
 ```
 
 **Current State:**
 - ✅ Spring Boot Actuator enabled
-- ✅ Prometheus metrics exposed
-- ✅ OpenTelemetry agent integrated
+- ✅ Prometheus metrics exposed at `/actuator/prometheus`
+- ✅ OpenTelemetry agent integrated (ready for tracing)
 - ✅ CloudWatch Observability add-on deployed (Fluent Bit)
 - ✅ Pod logs automatically shipped to CloudWatch
 - ✅ CloudWatch control plane logging enabled
-- ✅ Health probes configured
-- ⏳ Prometheus not deployed (metrics not collected)
-- ⏳ OTEL collector not deployed (traces not collected)
+- ✅ Health probes configured (liveness, readiness, startup)
+- ✅ AWS Managed Prometheus (AMP) workspace deployed
+- ✅ AWS Managed Grafana (AMG) workspace deployed
+- ✅ Grafana datasource configured (AMP with SigV4 auth)
+- ✅ Prometheus Agent deployed (scraping metrics → AMP)
+- ✅ Alert rules configured in AMP (8 rules)
+- ✅ SNS topic for alert notifications
+- ⚠️ Grafana dashboards need creation
+- ⚠️ OTEL Collector not deployed (traces not collected yet)
+- ⚠️ Tracing backend not deployed (Jaeger/Tempo)
 
 ---
 
