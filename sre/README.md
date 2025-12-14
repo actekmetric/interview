@@ -14,7 +14,6 @@ Complete GitOps infrastructure for multi-account AWS environments (dev, qa, prod
 ## 🔗 Quick Navigation
 
 - **[Complete Setup Guide](docs/SETUP-GUIDE.md)** - Step-by-step setup from scratch (START HERE!)
-- **[Demo Script](docs/DEMO.md)** - Complete demonstration script for interviews
 - **[Presentation](docs/PRESENTATION.md)** - Interview presentation outline
 - [Staged Deployment Guide](docs/STAGED-DEPLOYMENT.md) - Infrastructure deployment strategy
 - [Git Workflow Strategy](docs/GIT-WORKFLOW.md) - Branch-based deployment workflow (develop→dev, release→qa, master→prod)
