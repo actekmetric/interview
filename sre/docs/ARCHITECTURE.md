@@ -90,56 +90,81 @@ graph TB
 
 ```mermaid
 graph TB
-    IGW[Internet Gateway]
+    INTERNET[Internet]
 
     subgraph "VPC 10.0.0.0/16"
+        IGW[Internet Gateway]
+
         subgraph "us-east-1a"
-            PUB1[Public Subnet<br/>10.0.0.0/24]
-            PRIV1[Private Subnet<br/>10.0.10.0/24]
+            PUB1[Public Subnet<br/>10.0.0.0/24<br/>Routes to IGW]
+            NAT1[NAT Gateway<br/>with Elastic IP]
+            PRIV1[Private Subnet<br/>10.0.10.0/24<br/>Routes to NAT]
+            EKS1[EKS Worker Nodes]
         end
 
         subgraph "us-east-1b"
-            PUB2[Public Subnet<br/>10.0.1.0/24]
-            PRIV2[Private Subnet<br/>10.0.11.0/24]
+            PUB2[Public Subnet<br/>10.0.1.0/24<br/>Routes to IGW]
+            PRIV2[Private Subnet<br/>10.0.11.0/24<br/>Routes to NAT]
+            EKS2[EKS Worker Nodes]
         end
 
         subgraph "us-east-1c"
-            PUB3[Public Subnet<br/>10.0.2.0/24]
-            PRIV3[Private Subnet<br/>10.0.12.0/24]
-        end
-
-        NAT1[NAT Gateway<br/>us-east-1a]
-
-        subgraph "Security Groups"
-            SG_EKS[EKS Cluster SG]
-            SG_NODE[Node Group SG]
+            PUB3[Public Subnet<br/>10.0.2.0/24<br/>Routes to IGW]
+            PRIV3[Private Subnet<br/>10.0.12.0/24<br/>Routes to NAT]
+            EKS3[EKS Worker Nodes]
         end
     end
 
+    %% Inbound traffic flow (from internet)
+    INTERNET -->|Inbound| IGW
     IGW --> PUB1
     IGW --> PUB2
     IGW --> PUB3
 
-    PUB1 --> NAT1
-    PUB2 --> NAT1
-    PUB3 --> NAT1
+    %% NAT Gateway placement
+    PUB1 -.->|NAT resides in<br/>public subnet| NAT1
 
-    NAT1 --> PRIV1
-    NAT1 --> PRIV2
-    NAT1 --> PRIV3
+    %% Outbound traffic flow (from private to internet)
+    PRIV1 -->|Outbound traffic| NAT1
+    PRIV2 -->|Outbound traffic| NAT1
+    PRIV3 -->|Outbound traffic| NAT1
+    NAT1 -->|via IGW| INTERNET
 
-    PRIV1 -.-> SG_EKS
-    PRIV2 -.-> SG_EKS
-    PRIV3 -.-> SG_EKS
+    %% EKS nodes in private subnets
+    PRIV1 -.- EKS1
+    PRIV2 -.- EKS2
+    PRIV3 -.- EKS3
+```
 
-    SG_EKS <-.-> SG_NODE
+**Network Flow Explained:**
+
+**Inbound (Internet → EKS):**
+```
+Internet → Internet Gateway → Load Balancer (Public Subnet) → EKS Nodes (Private Subnet)
+```
+
+**Outbound (EKS → Internet):**
+```
+EKS Nodes (Private Subnet) → NAT Gateway (in Public Subnet) → Internet Gateway → Internet
 ```
 
 **Key Components:**
 - **3 Availability Zones:** High availability across multiple data centers
-- **Public Subnets:** NAT Gateway, Load Balancers, Bastion (if needed)
-- **Private Subnets:** EKS nodes and pods (no direct internet access)
-- **NAT Gateway:** Single NAT in dev (cost optimization), per-AZ in prod (HA)
+- **Public Subnets:**
+  - Route table: `0.0.0.0/0 → Internet Gateway`
+  - Contains: NAT Gateway, Load Balancers
+  - Can receive inbound internet traffic
+- **Private Subnets:**
+  - Route table: `0.0.0.0/0 → NAT Gateway`
+  - Contains: EKS worker nodes and pods
+  - No direct internet access (inbound blocked)
+  - Can make outbound requests via NAT Gateway
+- **NAT Gateway:**
+  - Deployed in public subnet (us-east-1a)
+  - Has Elastic IP for outbound traffic
+  - Allows private subnet resources to download packages, pull images, etc.
+  - Blocks all inbound connections from internet
+  - Single NAT in dev (cost optimization), per-AZ in prod (HA)
 - **Security Groups:** Least privilege access between components
 
 ---
