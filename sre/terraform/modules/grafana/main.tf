@@ -68,13 +68,18 @@ resource "aws_iam_role_policy" "grafana_amp_query" {
           "aps:QueryMetrics",
           "aps:GetLabels",
           "aps:GetSeries",
-          "aps:GetMetricMetadata",
-          # Alert rules permissions
+          "aps:GetMetricMetadata"
+        ]
+        Resource = var.amp_workspace_arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "aps:ListRuleGroupsNamespaces",
           "aps:DescribeRuleGroupsNamespace",
           "aps:DescribeAlertManagerDefinition"
         ]
-        Resource = var.amp_workspace_arn
+        Resource = "${var.amp_workspace_arn}/*"
       }
     ]
   })
