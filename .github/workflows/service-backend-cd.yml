@@ -51,6 +51,7 @@ jobs:
 
     steps:
       - name: Download build metadata from CI
+        id: download-metadata
         if: github.event_name == 'workflow_run'
         uses: actions/github-script@v7
         with:
@@ -66,9 +67,12 @@ jobs:
             })[0];
 
             if (!matchArtifact) {
-              core.setFailed('build-metadata artifact not found');
+              core.notice('build-metadata artifact not found - CI likely skipped publishing (e.g., master branch)');
+              core.setOutput('metadata-found', 'false');
               return;
             }
+
+            core.setOutput('metadata-found', 'true');
 
             const download = await github.rest.actions.downloadArtifact({
               owner: context.repo.owner,
@@ -81,7 +85,7 @@ jobs:
             fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/build-metadata.zip`, Buffer.from(download.data));
 
       - name: Extract build metadata
-        if: github.event_name == 'workflow_run'
+        if: github.event_name == 'workflow_run' && steps.download-metadata.outputs.metadata-found == 'true'
         run: |
           unzip build-metadata.zip -d build-metadata
           ls -la build-metadata/
@@ -95,8 +99,9 @@ jobs:
             VERSION="${{ inputs.version }}"
             SHOULD_DEPLOY="true"
             BRANCH_NAME="manual"
-          else
-            # Automatic from CI - get metadata from artifact
+            IMAGE_REF="${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/backend:${VERSION}"
+          elif [[ "${{ steps.download-metadata.outputs.metadata-found }}" == "true" ]]; then
+            # Automatic from CI - metadata found
             WORKFLOW_ID="${{ github.event.workflow_run.id }}"
             echo "CI Workflow Run ID: ${WORKFLOW_ID}"
 
@@ -119,11 +124,17 @@ jobs:
               echo "⚠️  Production deployment requires manual approval"
               echo "   Run workflow_dispatch with environment=prod and version=${VERSION}"
             fi
-          fi
+          else
+            # Automatic from CI - no metadata found (CI skipped publishing)
+            ENV="none"
+            VERSION="unknown"
+            SHOULD_DEPLOY="false"
+            BRANCH_NAME="${{ github.event.workflow_run.head_branch }}"
+            IMAGE_REF="none"
 
-          # For manual dispatch, construct image-ref
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            IMAGE_REF="${{ secrets.AWS_DEV_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/backend:${VERSION}"
+            echo "⏭️  CI workflow skipped publishing artifacts (e.g., master branch)"
+            echo "   Branch: ${BRANCH_NAME}"
+            echo "   Deployment will be skipped"
           fi
 
           echo "environment=${ENV}" >> $GITHUB_OUTPUT
@@ -136,6 +147,11 @@ jobs:
           echo "**Version:** \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Auto-deploy:** \`${SHOULD_DEPLOY}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Image:** \`${IMAGE_REF}\`" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${SHOULD_DEPLOY}" == "false" ]] && [[ "${ENV}" == "none" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "ℹ️  **Note:** CI workflow did not publish artifacts. Deployment skipped." >> $GITHUB_STEP_SUMMARY
+          fi
 
   deploy-to-dev:
     name: Deploy to DEV

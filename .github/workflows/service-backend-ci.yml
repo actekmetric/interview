@@ -173,6 +173,37 @@ jobs:
           path: backend/target/*.jar
           retention-days: 1
 
+  create-build-metadata:
+    name: Create Build Metadata
+    runs-on: ubuntu-latest
+    needs: [build-and-test, docker-build]
+    if: |
+      needs.build-and-test.result == 'success' &&
+      needs.build-and-test.outputs.should-deploy == 'true'
+    steps:
+      - name: Create build metadata for CD
+        run: |
+          mkdir -p build-metadata
+          echo "${{ needs.build-and-test.outputs.version }}" > build-metadata/version.txt
+          echo "${{ needs.docker-build.outputs.image-ref }}" > build-metadata/image-ref.txt
+          echo "${{ needs.build-and-test.outputs.environment }}" > build-metadata/environment.txt
+          echo "${{ needs.build-and-test.outputs.branch }}" > build-metadata/branch.txt
+          echo "${{ needs.build-and-test.outputs.should-deploy }}" > build-metadata/should-deploy.txt
+
+          echo "📝 Build metadata created:"
+          cat build-metadata/version.txt
+          cat build-metadata/image-ref.txt
+          echo "Environment: $(cat build-metadata/environment.txt)"
+          echo "Branch: $(cat build-metadata/branch.txt)"
+          echo "Should Deploy: $(cat build-metadata/should-deploy.txt)"
+
+      - name: Upload build metadata artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-metadata
+          path: build-metadata/
+          retention-days: 1
+
   docker-build:
     name: Docker Build
     runs-on: ubuntu-latest
@@ -286,29 +317,6 @@ jobs:
           image-name: backend
           source-tag: ${{ needs.build-and-test.outputs.version }}
           target-tag: ${{ needs.build-and-test.outputs.version }}
-
-      - name: Save build metadata for CD
-        run: |
-          mkdir -p build-metadata
-          echo "${{ needs.build-and-test.outputs.version }}" > build-metadata/version.txt
-          echo "${{ needs.docker-build.outputs.image-ref }}" > build-metadata/image-ref.txt
-          echo "${{ needs.build-and-test.outputs.environment }}" > build-metadata/environment.txt
-          echo "${{ needs.build-and-test.outputs.branch }}" > build-metadata/branch.txt
-          echo "${{ needs.build-and-test.outputs.should-deploy }}" > build-metadata/should-deploy.txt
-
-          echo "📝 Saved build metadata:"
-          cat build-metadata/version.txt
-          cat build-metadata/image-ref.txt
-          echo "Environment: $(cat build-metadata/environment.txt)"
-          echo "Branch: $(cat build-metadata/branch.txt)"
-          echo "Should Deploy: $(cat build-metadata/should-deploy.txt)"
-
-      - name: Upload build metadata artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-metadata
-          path: build-metadata/
-          retention-days: 1
 
   publish-helm-chart:
     name: Publish Helm Chart
