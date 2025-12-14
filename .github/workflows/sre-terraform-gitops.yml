@@ -45,6 +45,8 @@ on:
           - 3-iam
           - 4-ecr
           - 5-eks-addons
+          - 6-observability/amp
+          - 7-observability/grafana
         default: all
 
 concurrency:
@@ -88,8 +90,9 @@ jobs:
             #   /terraform apply dev all
             #   /terraform plan dev 1-networking
             #   /terraform apply qa 3-iam
+            #   /terraform apply dev 6-observability/amp
 
-            if [[ "$COMMENT" =~ ^/terraform[[:space:]]+(apply|plan)([[:space:]]+)?(dev|qa|prod)?([[:space:]]+)?(all|1-networking|2-eks-cluster|3-iam|4-ecr|5-eks-addons)?$ ]]; then
+            if [[ "$COMMENT" =~ ^/terraform[[:space:]]+(apply|plan)([[:space:]]+)?(dev|qa|prod)?([[:space:]]+)?(all|1-networking|2-eks-cluster|3-iam|4-ecr|5-eks-addons|6-observability/amp|7-observability/grafana)?$ ]]; then
               ACTION="${BASH_REMATCH[1]}"
               ENV="${BASH_REMATCH[3]}"
               STAGE="${BASH_REMATCH[5]}"
@@ -116,7 +119,8 @@ jobs:
               echo "  /terraform apply dev all"
               echo "  /terraform plan dev 1-networking"
               echo "  /terraform apply qa 3-iam"
-              echo "  /terraform apply dev 4-ecr"
+              echo "  /terraform apply dev observability/amp"
+              echo "  /terraform apply dev observability/grafana"
               exit 1
             fi
           else
@@ -226,18 +230,24 @@ jobs:
           # Determine which directories to run based on stage
           if [[ "$STAGE" == "all" ]]; then
             echo "Running plan for all stages in dev environment..."
-            terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
+            terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee /tmp/dev-plan-raw.txt
           else
-            # Extract module name from stage (e.g., "1-networking" -> "networking")
-            MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            # Extract module path from stage
+            # For numbered stages like "1-networking", remove the number prefix
+            # For path stages like "observability/amp", use as-is
+            if [[ "$STAGE" =~ ^[0-9]- ]]; then
+              MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            else
+              MODULE="$STAGE"
+            fi
             echo "Running plan for stage: $MODULE in dev environment..."
             cd "$MODULE"
-            terragrunt plan --terragrunt-non-interactive 2>&1 | tee ../plan.txt
-            cd ..
+            terragrunt plan --terragrunt-non-interactive 2>&1 | tee /tmp/dev-plan-raw.txt
+            cd - > /dev/null
           fi
 
           # Strip ANSI color codes and save for comment
-          sed 's/\x1b\[[0-9;]*m//g' plan.txt > /tmp/dev-plan.txt
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/dev-plan-raw.txt > /tmp/dev-plan.txt
 
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
@@ -382,17 +392,21 @@ jobs:
           # Determine which directories to run based on stage
           if [[ "$STAGE" == "all" ]]; then
             echo "🚀 Applying all stages in dev environment..."
-            terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee apply.txt
+            terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee /tmp/dev-apply.txt
           else
-            # Extract module name from stage (e.g., "1-networking" -> "networking")
-            MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            # Extract module path from stage
+            # For numbered stages like "1-networking", remove the number prefix
+            # For path stages like "observability/amp", use as-is
+            if [[ "$STAGE" =~ ^[0-9]- ]]; then
+              MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            else
+              MODULE="$STAGE"
+            fi
             echo "🚀 Applying stage: $MODULE in dev environment..."
             cd "$MODULE"
-            terragrunt apply -auto-approve --terragrunt-non-interactive 2>&1 | tee ../apply.txt
-            cd ..
+            terragrunt apply -auto-approve --terragrunt-non-interactive 2>&1 | tee /tmp/dev-apply.txt
+            cd - > /dev/null
           fi
-
-          cat apply.txt > /tmp/dev-apply.txt
 
       - name: Upload apply artifact
         uses: actions/upload-artifact@v4
@@ -494,16 +508,23 @@ jobs:
           # Determine which directories to run based on stage
           if [[ "$STAGE" == "all" ]]; then
             echo "Running plan for all stages in qa environment..."
-            terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
+            terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee /tmp/qa-plan-raw.txt
           else
-            MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            # Extract module path from stage
+            # For numbered stages like "1-networking", remove the number prefix
+            # For path stages like "observability/amp", use as-is
+            if [[ "$STAGE" =~ ^[0-9]- ]]; then
+              MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            else
+              MODULE="$STAGE"
+            fi
             echo "Running plan for stage: $MODULE in qa environment..."
             cd "$MODULE"
-            terragrunt plan --terragrunt-non-interactive 2>&1 | tee ../plan.txt
-            cd ..
+            terragrunt plan --terragrunt-non-interactive 2>&1 | tee /tmp/qa-plan-raw.txt
+            cd - > /dev/null
           fi
 
-          sed 's/\x1b\[[0-9;]*m//g' plan.txt > /tmp/qa-plan.txt
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/qa-plan-raw.txt > /tmp/qa-plan.txt
 
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
@@ -638,16 +659,21 @@ jobs:
           # Determine which directories to run based on stage
           if [[ "$STAGE" == "all" ]]; then
             echo "🚀 Applying all stages in qa environment..."
-            terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee apply.txt
+            terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee /tmp/qa-apply.txt
           else
-            MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            # Extract module path from stage
+            # For numbered stages like "1-networking", remove the number prefix
+            # For path stages like "observability/amp", use as-is
+            if [[ "$STAGE" =~ ^[0-9]- ]]; then
+              MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            else
+              MODULE="$STAGE"
+            fi
             echo "🚀 Applying stage: $MODULE in qa environment..."
             cd "$MODULE"
-            terragrunt apply -auto-approve --terragrunt-non-interactive 2>&1 | tee ../apply.txt
-            cd ..
+            terragrunt apply -auto-approve --terragrunt-non-interactive 2>&1 | tee /tmp/qa-apply.txt
+            cd - > /dev/null
           fi
-
-          cat apply.txt > /tmp/qa-apply.txt
 
       - name: Upload apply artifact
         uses: actions/upload-artifact@v4
@@ -749,16 +775,23 @@ jobs:
           # Determine which directories to run based on stage
           if [[ "$STAGE" == "all" ]]; then
             echo "Running plan for all stages in prod environment..."
-            terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee plan.txt
+            terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee /tmp/prod-plan-raw.txt
           else
-            MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            # Extract module path from stage
+            # For numbered stages like "1-networking", remove the number prefix
+            # For path stages like "observability/amp", use as-is
+            if [[ "$STAGE" =~ ^[0-9]- ]]; then
+              MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            else
+              MODULE="$STAGE"
+            fi
             echo "Running plan for stage: $MODULE in prod environment..."
             cd "$MODULE"
-            terragrunt plan --terragrunt-non-interactive 2>&1 | tee ../plan.txt
-            cd ..
+            terragrunt plan --terragrunt-non-interactive 2>&1 | tee /tmp/prod-plan-raw.txt
+            cd - > /dev/null
           fi
 
-          sed 's/\x1b\[[0-9;]*m//g' plan.txt > /tmp/prod-plan.txt
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/prod-plan-raw.txt > /tmp/prod-plan.txt
 
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
@@ -895,16 +928,21 @@ jobs:
           # Determine which directories to run based on stage
           if [[ "$STAGE" == "all" ]]; then
             echo "🚀 Applying all stages in prod environment..."
-            terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee apply.txt
+            terragrunt run-all apply --terragrunt-non-interactive 2>&1 | tee /tmp/prod-apply.txt
           else
-            MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            # Extract module path from stage
+            # For numbered stages like "1-networking", remove the number prefix
+            # For path stages like "observability/amp", use as-is
+            if [[ "$STAGE" =~ ^[0-9]- ]]; then
+              MODULE=$(echo "$STAGE" | sed 's/^[0-9]-//')
+            else
+              MODULE="$STAGE"
+            fi
             echo "🚀 Applying stage: $MODULE in prod environment..."
             cd "$MODULE"
-            terragrunt apply -auto-approve --terragrunt-non-interactive 2>&1 | tee ../apply.txt
-            cd ..
+            terragrunt apply -auto-approve --terragrunt-non-interactive 2>&1 | tee /tmp/prod-apply.txt
+            cd - > /dev/null
           fi
-
-          cat apply.txt > /tmp/prod-apply.txt
 
       - name: Upload apply artifact
         uses: actions/upload-artifact@v4
