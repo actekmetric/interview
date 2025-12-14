@@ -33,6 +33,11 @@ output "cluster_oidc_issuer_url" {
   value       = var.enable_irsa ? aws_eks_cluster.main.identity[0].oidc[0].issuer : null
 }
 
+output "cluster_oidc_issuer" {
+  description = "OIDC issuer (without https:// prefix) for IRSA"
+  value       = var.enable_irsa ? replace(aws_eks_cluster.main.identity[0].oidc[0].issuer, "https://", "") : null
+}
+
 output "oidc_provider_arn" {
   description = "ARN of OIDC provider"
   value       = var.enable_irsa ? aws_iam_openid_connect_provider.cluster[0].arn : null
