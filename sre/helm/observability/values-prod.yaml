@@ -14,14 +14,12 @@ prometheusAgent:
     create: true
     name: prometheus-agent
     annotations:
-      # TODO: Replace with actual IAM role ARN from Terraform output
-      # Get from: cd sre/terragrunt/environments/prod/observability/amp && terragrunt output prometheus_agent_role_arn
-      eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/tekmetric-prod-prometheus-agent-role"
+      # Injected at deploy time via --set from Terraform outputs
+      eks.amazonaws.com/role-arn: ""
 
   amp:
-    # TODO: Replace with actual AMP remote_write endpoint from Terraform output
-    # Get from: cd sre/terragrunt/environments/prod/observability/amp && terragrunt output workspace_endpoint
-    remoteWriteUrl: "REPLACE_WITH_AMP_REMOTE_WRITE_URL"
+    # Injected at deploy time via --set from Terraform outputs
+    remoteWriteUrl: ""
     sigv4:
       enabled: true
       region: us-east-1

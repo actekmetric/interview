@@ -61,12 +61,118 @@ jobs:
             echo "environments=[\"dev\"]" >> $GITHUB_OUTPUT
           fi
 
+  # Publish Helm Chart to S3
+  publish-chart:
+    name: Publish Observability Chart to S3
+    runs-on: ubuntu-latest
+    needs: determine-environments
+    if: github.event.inputs.action != 'uninstall'
+    outputs:
+      chart-version: ${{ steps.get-version.outputs.version }}
+      chart-name: ${{ steps.get-version.outputs.name }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.14.0
+
+      - name: Lint Helm Chart
+        run: |
+          echo "🔍 Linting Helm chart..."
+          helm lint sre/helm/observability/
+          echo "✅ Helm chart linting passed"
+
+      - name: Get Chart Info
+        id: get-version
+        run: |
+          CHART_NAME=$(helm show chart sre/helm/observability | grep '^name:' | awk '{print $2}')
+          CHART_VERSION=$(helm show chart sre/helm/observability | grep '^version:' | awk '{print $2}')
+          APP_VERSION=$(helm show chart sre/helm/observability | grep '^appVersion:' | awk '{print $2}' | tr -d '"')
+
+          echo "name=${CHART_NAME}" >> $GITHUB_OUTPUT
+          echo "version=${CHART_VERSION}" >> $GITHUB_OUTPUT
+          echo "app-version=${APP_VERSION}" >> $GITHUB_OUTPUT
+
+          echo "📦 Chart: ${CHART_NAME}"
+          echo "🏷️  Version: ${CHART_VERSION}"
+          echo "🐳 App Version: ${APP_VERSION}"
+
+      - name: Validate Chart Template
+        run: |
+          echo "🔍 Validating Helm chart templates..."
+          helm template test-release sre/helm/observability --dry-run > /dev/null
+          echo "✅ Helm chart templates are valid"
+
+      - name: Configure AWS credentials
+        uses: ./.github/actions/aws-assume-role
+        with:
+          environment: dev
+          role-arn: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          account-id: ${{ secrets.AWS_DEV_ACCOUNT_ID }}
+          aws-region: us-east-1
+
+      - name: Install helm-s3 plugin
+        run: |
+          echo "📦 Installing helm-s3 plugin..."
+          helm plugin install https://github.com/hypnoglow/helm-s3.git --version 0.16.0
+          helm plugin list
+
+      - name: Initialize S3 Helm repository
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+
+          echo "🔧 Initializing S3 Helm repository..."
+          helm s3 init --ignore-if-exists ${REPO_PATH}
+          echo "✅ Repository ready"
+
+      - name: Package and Push Chart to S3
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+          REPO_NAME="tekmetric-s3"
+          CHART_NAME="${{ steps.get-version.outputs.name }}"
+          CHART_VERSION="${{ steps.get-version.outputs.version }}"
+
+          echo "📦 Packaging Helm chart..."
+          helm package sre/helm/observability \
+            --version ${CHART_VERSION} \
+            --app-version ${{ steps.get-version.outputs.app-version }}
+
+          echo "📤 Adding S3 repo..."
+          helm repo add ${REPO_NAME} ${REPO_PATH}
+
+          echo "📤 Pushing chart to S3..."
+          CHART_FILE="${CHART_NAME}-${CHART_VERSION}.tgz"
+          helm s3 push ${CHART_FILE} ${REPO_NAME} --force
+
+          echo "✅ Chart pushed to ${REPO_PATH}"
+
+          # Verify
+          echo "🔍 Verifying chart availability..."
+          helm repo update ${REPO_NAME}
+          helm search repo ${REPO_NAME}/${CHART_NAME} --versions | head -5
+
+      - name: Summary
+        run: |
+          echo "## 📦 Observability Helm Chart Published to S3" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Chart Name:** \`${{ steps.get-version.outputs.name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Chart Version:** \`${{ steps.get-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** \`s3://tekmetric-helm-charts-dev/charts\`" >> $GITHUB_STEP_SUMMARY
+
   # Deploy to DEV
   deploy-dev:
     name: Deploy to DEV
     runs-on: ubuntu-latest
-    needs: determine-environments
-    if: contains(fromJson(needs.determine-environments.outputs.environments), 'dev')
+    needs: [determine-environments, publish-chart]
+    if: |
+      always() &&
+      (needs.publish-chart.result == 'success' || needs.publish-chart.result == 'skipped') &&
+      contains(fromJson(needs.determine-environments.outputs.environments), 'dev')
     environment:
       name: dev
       url: https://g-dev-grafana.grafana-workspace.us-east-1.amazonaws.com
@@ -115,84 +221,52 @@ jobs:
             --name tekmetric-dev \
             --region us-east-1
 
-      - name: Prepare Helm Values
+      - name: Install helm-s3 plugin
         run: |
-          cd sre/helm/observability
+          echo "📦 Installing helm-s3 plugin..."
+          helm plugin install https://github.com/hypnoglow/helm-s3.git --version 0.16.0
+          helm plugin list
 
-          # Create temporary values file with Terraform outputs
-          cat > values-dev-generated.yaml << EOF
-          # Auto-generated values from Terraform outputs
-          # Base values are imported from values-dev.yaml
+      - name: Add S3 Helm Repository
+        run: |
+          BUCKET_NAME="tekmetric-helm-charts-dev"
+          REPO_PATH="s3://${BUCKET_NAME}/charts"
+          REPO_NAME="tekmetric-s3"
 
-          global:
-            environment: dev
-            region: us-east-1
+          echo "📤 Adding S3 repo..."
+          helm repo add ${REPO_NAME} ${REPO_PATH}
+          helm repo update ${REPO_NAME}
 
-          prometheusAgent:
-            enabled: true
-            replicas: 1
+          echo "✅ Repository added and updated"
 
-            serviceAccount:
-              create: true
-              name: prometheus-agent
-              annotations:
-                eks.amazonaws.com/role-arn: "${{ steps.terraform-outputs.outputs.role-arn }}"
-
-            amp:
-              remoteWriteUrl: "${{ steps.terraform-outputs.outputs.amp-endpoint }}"
-              sigv4:
-                enabled: true
-                region: us-east-1
-
-            scrapeInterval: 30s
-            scrapeTimeout: 10s
-
-            resources:
-              requests:
-                memory: "256Mi"
-                cpu: "100m"
-              limits:
-                memory: "512Mi"
-                cpu: "250m"
-
-          kubeStateMetrics:
-            enabled: true
-            resources:
-              requests:
-                memory: "64Mi"
-                cpu: "50m"
-              limits:
-                memory: "128Mi"
-                cpu: "100m"
-
-          nodeExporter:
-            enabled: true
-            resources:
-              requests:
-                memory: "32Mi"
-                cpu: "25m"
-              limits:
-                memory: "64Mi"
-                cpu: "50m"
-          EOF
-
-          echo "✅ Generated values file with Terraform outputs"
-          cat values-dev-generated.yaml
-
-      - name: Ensure Namespace Exists
+      - name: Ensure Namespace Exists with Helm Labels
         if: github.event.inputs.action != 'uninstall'
         run: |
+          # Create namespace if it doesn't exist, or add Helm labels if it does
           kubectl create namespace observability --dry-run=client -o yaml | kubectl apply -f -
-          echo "✅ Namespace 'observability' is ready"
+
+          # Add Helm ownership labels and annotations so Helm can manage it
+          kubectl label namespace observability app.kubernetes.io/managed-by=Helm --overwrite
+          kubectl annotate namespace observability meta.helm.sh/release-name=observability --overwrite
+          kubectl annotate namespace observability meta.helm.sh/release-namespace=observability --overwrite
+
+          echo "✅ Namespace 'observability' is ready with Helm labels"
 
       - name: Deploy/Upgrade Observability Stack
         if: github.event.inputs.action != 'uninstall'
         run: |
-          cd sre/helm/observability
+          REPO_NAME="tekmetric-s3"
+          CHART_NAME="${{ needs.publish-chart.outputs.chart-name }}"
+          CHART_VERSION="${{ needs.publish-chart.outputs.chart-version }}"
 
-          helm upgrade --install observability . \
+          echo "📦 Deploying ${CHART_NAME}:${CHART_VERSION} from S3..."
+
+          helm upgrade --install observability ${REPO_NAME}/${CHART_NAME} \
+            --version ${CHART_VERSION} \
             --namespace observability \
-            --values values-dev-generated.yaml \
+            --values sre/helm/observability/values-dev.yaml \
+            --set prometheusAgent.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${{ steps.terraform-outputs.outputs.role-arn }}" \
+            --set prometheusAgent.amp.remoteWriteUrl="${{ steps.terraform-outputs.outputs.amp-endpoint }}" \
             --wait \
             --timeout 10m
 
@@ -366,11 +440,18 @@ jobs:
                 cpu: "100m"
           EOF
 
-      - name: Ensure Namespace Exists
+      - name: Ensure Namespace Exists with Helm Labels
         if: github.event.inputs.action != 'uninstall'
         run: |
+          # Create namespace if it doesn't exist, or add Helm labels if it does
           kubectl create namespace observability --dry-run=client -o yaml | kubectl apply -f -
-          echo "✅ Namespace 'observability' is ready"
+
+          # Add Helm ownership labels and annotations so Helm can manage it
+          kubectl label namespace observability app.kubernetes.io/managed-by=Helm --overwrite
+          kubectl annotate namespace observability meta.helm.sh/release-name=observability --overwrite
+          kubectl annotate namespace observability meta.helm.sh/release-namespace=observability --overwrite
+
+          echo "✅ Namespace 'observability' is ready with Helm labels"
 
       - name: Deploy/Upgrade Observability Stack
         if: github.event.inputs.action != 'uninstall'
@@ -503,6 +584,19 @@ jobs:
                 cpu: "200m"
           EOF
 
+      - name: Ensure Namespace Exists with Helm Labels
+        if: github.event.inputs.action != 'uninstall'
+        run: |
+          # Create namespace if it doesn't exist, or add Helm labels if it does
+          kubectl create namespace observability --dry-run=client -o yaml | kubectl apply -f -
+
+          # Add Helm ownership labels and annotations so Helm can manage it
+          kubectl label namespace observability app.kubernetes.io/managed-by=Helm --overwrite
+          kubectl annotate namespace observability meta.helm.sh/release-name=observability --overwrite
+          kubectl annotate namespace observability meta.helm.sh/release-namespace=observability --overwrite
+
+          echo "✅ Namespace 'observability' is ready with Helm labels"
+
       - name: Deploy/Upgrade Observability Stack
         if: github.event.inputs.action != 'uninstall'
         run: |
@@ -510,7 +604,6 @@ jobs:
 
           helm upgrade --install observability . \
             --namespace observability \
-            --create-namespace \
             --values values-prod-generated.yaml \
             --wait \
             --timeout 10m
