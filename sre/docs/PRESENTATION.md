@@ -117,8 +117,8 @@ Stage 4: EKS Addons
 
 **Deployment Methods:**
 1. GitHub Actions UI (select environment + stage)
-2. PR comments: `/terraform apply dev 1-networking`
-3. Local CLI: `cd environments/dev/1-networking && terragrunt apply`
+2. PR comments: `/terraform apply dev 1-networking` (workflow strips numbers)
+3. Local CLI: `cd sre/terragrunt/environments/dev/networking && terragrunt apply`
 
 📖 **For complete infrastructure details:**
 - [STAGED-DEPLOYMENT.md](STAGED-DEPLOYMENT.md) - Complete staged deployment strategy
@@ -540,82 +540,6 @@ helm/
 
 ---
 
-## Common Interview Questions & Answers
-
-### Q: How do you handle secrets in the application?
-**A:** Currently using Kubernetes Secrets. For production, I would recommend:
-- AWS Secrets Manager with IRSA (already have IRSA framework)
-- External Secrets Operator to sync from Secrets Manager
-- Rotation policies for database credentials
-- No secrets in code or Git
-
-### Q: How would you handle a rollback?
-**A:**
-```bash
-# Via Helm
-helm rollback backend -n backend-services
-
-# Via kubectl
-kubectl rollout undo deployment/backend -n backend-services
-
-# To specific revision
-kubectl rollout undo deployment/backend --to-revision=2 -n backend-services
-```
-Helm's atomic flag ensures automatic rollback on deployment failure.
-
-### Q: What about disaster recovery?
-**A:** Multi-layered approach:
-1. **Infrastructure:** Terraform code in Git - can recreate from scratch
-2. **State Backups:** Terraform state versioned in S3
-3. **Application:** Docker images in ECR with tags
-4. **Data:** Would use RDS automated backups + point-in-time recovery
-5. **Kubernetes:** Would add Velero for backup/restore
-
-**RTO/RPO:**
-- Infrastructure: ~30 min (automated deployment)
-- Application: ~5 min (helm install)
-- Data: Depends on backup strategy (< 1 hour with RDS)
-
-### Q: How do you manage database migrations?
-**A:** H2 is in-memory for demo. For production with RDS:
-1. **Flyway/Liquibase** for schema management
-2. **Init containers** to run migrations before app starts
-3. **Separate migration job** for major changes
-4. **Rollback scripts** for each migration
-5. **Test migrations** in lower environments first
-
-### Q: How would you optimize costs?
-**A:** Already implemented:
-- Start/Stop workflows for dev/qa (save 50% on compute)
-- Single NAT gateway in dev (save $32/month)
-- Smaller instance types in dev/qa
-
-**Additional optimizations:**
-- Spot instances for dev/qa nodes (60-70% savings)
-- Karpenter for right-sizing
-- Cluster autoscaler for scaling to zero
-- S3 lifecycle policies for old Helm charts
-- CloudWatch log retention policies
-
-### Q: How do you ensure security?
-**A:** Multi-layered security:
-1. **Network:** Private subnets, security groups, NACLs
-2. **Authentication:** GitHub OIDC (no static credentials), IRSA for pods
-3. **Container:** Non-root user, dropped capabilities, security scanning
-4. **K8s:** RBAC, Pod Security Standards, network policies
-5. **Compliance:** Would add OPA/Kyverno for policy enforcement
-
-### Q: How would you implement blue/green deployments?
-**A:** Several approaches:
-1. **Helm:** Deploy to separate namespace, switch ingress
-2. **Flagger:** Automated canary with metrics analysis
-3. **Argo Rollouts:** Progressive delivery with traffic shaping
-4. **Service Mesh:** Istio/Linkerd for traffic splitting
-
-Currently using rolling updates (zero downtime) which is suitable for most cases.
-
----
-
 ## Success Metrics
 
 **For This Implementation:**
@@ -632,21 +556,6 @@ Currently using rolling updates (zero downtime) which is suitable for most cases
 - Change failure rate
 - Service availability (SLA: 99.9%)
 - Response time (P95 < 200ms)
-
----
-
-## Presentation Tips
-
-1. **Start Strong:** "I've built a production-ready EKS infrastructure that demonstrates..."
-2. **Be Concise:** Stick to 2 minutes per section (use timer)
-3. **Show, Don't Just Tell:** Have terminal/browser ready for live demo
-4. **Highlight Decisions:** Explain "why" not just "what"
-5. **Be Honest:** "This is a demo/interview project. In production, I would also..."
-6. **Engage:** Ask if they want to dive deeper into any area
-7. **Time Management:** If running over, skip optional sections
-8. **Prepare for Questions:** Have answers ready for common questions
-9. **Show Enthusiasm:** Demonstrate passion for infrastructure and automation
-10. **Connect to Business:** Explain how features reduce risk, save costs, enable velocity
 
 ---
 
