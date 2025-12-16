@@ -8,6 +8,8 @@
 # New release change.
 #### Prerequisites
 - Maven
+
+- 
 - Java 25 (required for Spring Boot 3.x)
 
 #### Fork the repository and clone it locally
